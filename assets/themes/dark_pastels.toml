@@ -1,0 +1,27 @@
+# Dark Pastels
+# https://github.com/alacritty/alacritty-theme
+
+background = "#2c2c2c"
+foreground = "#dcdccc"
+cursor = "#dcdccc"
+cursor_text = "#2c2c2c"
+selection_background = "#4a4a4a"
+selection_foreground = "#dcdccc"
+
+black = "#1c1c1c"
+red = "#705050"
+green = "#60b48a"
+yellow = "#dfaf8f"
+blue = "#506070"
+magenta = "#dc8cc3"
+cyan = "#8cd0d3"
+white = "#dcdccc"
+
+bright_black = "#709080"
+bright_red = "#dca3a3"
+bright_green = "#72d5a3"
+bright_yellow = "#f0dfaf"
+bright_blue = "#94bff3"
+bright_magenta = "#ec93d3"
+bright_cyan = "#93e0e3"
+bright_white = "#ffffff"

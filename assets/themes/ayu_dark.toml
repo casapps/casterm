@@ -1,0 +1,27 @@
+# Ayu Dark
+# https://github.com/ayu-theme/ayu-colors
+
+background = "#0d1017"
+foreground = "#bfbdb6"
+cursor = "#e6b450"
+cursor_text = "#0d1017"
+selection_background = "#1f2430"
+selection_foreground = "#bfbdb6"
+
+black = "#0d1017"
+red = "#f07178"
+green = "#7fd962"
+yellow = "#f29718"
+blue = "#59c2ff"
+magenta = "#d2a6ff"
+cyan = "#95e6cb"
+white = "#bfbdb6"
+
+bright_black = "#5c6773"
+bright_red = "#ff8f40"
+bright_green = "#aad94c"
+bright_yellow = "#e6b450"
+bright_blue = "#73b8ff"
+bright_magenta = "#dfbfff"
+bright_cyan = "#b8cfe6"
+bright_white = "#e6e1cf"

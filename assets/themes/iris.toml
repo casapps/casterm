@@ -1,0 +1,27 @@
+# Iris
+# Purple iris inspired dark theme
+
+background = "#1a1a2e"
+foreground = "#d0c8e8"
+cursor = "#9d79d6"
+cursor_text = "#1a1a2e"
+selection_background = "#2d2853"
+selection_foreground = "#d0c8e8"
+
+black = "#1a1a2e"
+red = "#d15f9e"
+green = "#7ec89e"
+yellow = "#d4a872"
+blue = "#7095d4"
+magenta = "#9d79d6"
+cyan = "#72b8d4"
+white = "#b8aad0"
+
+bright_black = "#4a4470"
+bright_red = "#e880ba"
+bright_green = "#9ee8bc"
+bright_yellow = "#f0c898"
+bright_blue = "#90b5f0"
+bright_magenta = "#c09af0"
+bright_cyan = "#92d8f0"
+bright_white = "#e0d8f8"

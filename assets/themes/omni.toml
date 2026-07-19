@@ -1,0 +1,27 @@
+# Omni
+# https://github.com/getomni/omni
+
+background = "#191622"
+foreground = "#e1e1e6"
+cursor = "#f8f8f2"
+cursor_text = "#191622"
+selection_background = "#44475a"
+selection_foreground = "#f8f8f2"
+
+black = "#191622"
+red = "#ff5555"
+green = "#3ad900"
+yellow = "#ffca00"
+blue = "#0066ff"
+magenta = "#e75480"
+cyan = "#00c5c7"
+white = "#e1e1e6"
+
+bright_black = "#5b5b5b"
+bright_red = "#ff6e6e"
+bright_green = "#69ff47"
+bright_yellow = "#ffffa5"
+bright_blue = "#d6acff"
+bright_magenta = "#ff92df"
+bright_cyan = "#a4ffff"
+bright_white = "#ffffff"

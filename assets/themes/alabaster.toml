@@ -1,0 +1,27 @@
+# Alabaster
+# https://github.com/tonsky/sublime-scheme-alabaster
+
+background = "#f7f7f7"
+foreground = "#333333"
+cursor = "#007acc"
+cursor_text = "#f7f7f7"
+selection_background = "#d4d4d4"
+selection_foreground = "#333333"
+
+black = "#000000"
+red = "#aa3731"
+green = "#448c27"
+yellow = "#cb9000"
+blue = "#325cc0"
+magenta = "#7a3e9d"
+cyan = "#0083be"
+white = "#aaaaaa"
+
+bright_black = "#777777"
+bright_red = "#f05050"
+bright_green = "#60cb00"
+bright_yellow = "#ffbc5d"
+bright_blue = "#007acc"
+bright_magenta = "#e64ce6"
+bright_cyan = "#00aacb"
+bright_white = "#f7f7f7"

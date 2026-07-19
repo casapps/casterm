@@ -1,0 +1,27 @@
+# Modus Operandi
+# https://protesilaos.com/emacs/modus-themes (Emacs)
+
+background = "#ffffff"
+foreground = "#000000"
+cursor = "#000000"
+cursor_text = "#ffffff"
+selection_background = "#c2e0ff"
+selection_foreground = "#000000"
+
+black = "#000000"
+red = "#a60000"
+green = "#006800"
+yellow = "#6f5500"
+blue = "#0031a9"
+magenta = "#721045"
+cyan = "#005e8b"
+white = "#595959"
+
+bright_black = "#a8a8a8"
+bright_red = "#972500"
+bright_green = "#316500"
+bright_yellow = "#884900"
+bright_blue = "#354fcf"
+bright_magenta = "#531ab6"
+bright_cyan = "#005f5f"
+bright_white = "#ffffff"

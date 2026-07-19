@@ -1,0 +1,27 @@
+# Noctis Lux
+# https://github.com/liviuschera/noctis
+
+background = "#fef8ec"
+foreground = "#4a5469"
+cursor = "#4a5469"
+cursor_text = "#fef8ec"
+selection_background = "#e3dac9"
+selection_foreground = "#4a5469"
+
+black = "#1d262f"
+red = "#c94f40"
+green = "#2d8f4e"
+yellow = "#bf8a00"
+blue = "#2d78cc"
+magenta = "#8b4cc4"
+cyan = "#218480"
+white = "#828da0"
+
+bright_black = "#575f6d"
+bright_red = "#e05e4e"
+bright_green = "#38a860"
+bright_yellow = "#d49900"
+bright_blue = "#378ce0"
+bright_magenta = "#9f5fd8"
+bright_cyan = "#299e98"
+bright_white = "#fef8ec"

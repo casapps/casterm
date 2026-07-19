@@ -1,0 +1,40 @@
+# CASTERM Production/Human Runtime Compose
+# Usage: docker compose -f docker/docker-compose.yml up
+
+services:
+  casterm:
+    image: ghcr.io/casapps/casterm:latest
+    restart: unless-stopped
+    environment:
+      - TERM=xterm-256color
+    stdin_open: true
+    tty: true
+
+  # X11 GUI session (human-only)
+  gui-x11:
+    image: ghcr.io/casapps/casterm:latest
+    environment:
+      - DISPLAY
+      - XAUTHORITY=/tmp/.docker.xauth
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY:-~/.Xauthority}:/tmp/.docker.xauth:ro
+    devices:
+      - /dev/dri
+    stdin_open: true
+    tty: true
+
+  # Wayland GUI session (human-only)
+  gui-wayland:
+    image: ghcr.io/casapps/casterm:latest
+    environment:
+      - WAYLAND_DISPLAY
+      - XDG_RUNTIME_DIR=/tmp/xdg
+      - QT_QPA_PLATFORM=wayland
+      - GDK_BACKEND=wayland
+    volumes:
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}/${WAYLAND_DISPLAY:-wayland-0}:/tmp/xdg/${WAYLAND_DISPLAY:-wayland-0}
+    devices:
+      - /dev/dri
+    stdin_open: true
+    tty: true

@@ -1,0 +1,27 @@
+# Rainbow
+# Vivid rainbow color scheme
+
+background = "#1a1a1a"
+foreground = "#e0e0e0"
+cursor = "#ffffff"
+cursor_text = "#1a1a1a"
+selection_background = "#333333"
+selection_foreground = "#e0e0e0"
+
+black = "#000000"
+red = "#ff4136"
+green = "#2ecc40"
+yellow = "#ffdc00"
+blue = "#0074d9"
+magenta = "#b10dc9"
+cyan = "#7fdbff"
+white = "#dddddd"
+
+bright_black = "#555555"
+bright_red = "#ff6b6b"
+bright_green = "#01ff70"
+bright_yellow = "#fff176"
+bright_blue = "#39cccc"
+bright_magenta = "#f012be"
+bright_cyan = "#aef7ff"
+bright_white = "#ffffff"

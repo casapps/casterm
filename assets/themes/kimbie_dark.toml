@@ -1,0 +1,27 @@
+# Kimbie Dark
+# https://github.com/dnamsons/Kimbie-Dark-Plus
+
+background = "#221a0f"
+foreground = "#d3af86"
+cursor = "#d3af86"
+cursor_text = "#221a0f"
+selection_background = "#362a1e"
+selection_foreground = "#d3af86"
+
+black = "#221a0f"
+red = "#dc3958"
+green = "#889b4a"
+yellow = "#f79a32"
+blue = "#088649"
+magenta = "#7e5053"
+cyan = "#088649"
+white = "#d3af86"
+
+bright_black = "#675740"
+bright_red = "#dc3958"
+bright_green = "#889b4a"
+bright_yellow = "#f79a32"
+bright_blue = "#088649"
+bright_magenta = "#7e5053"
+bright_cyan = "#088649"
+bright_white = "#fbebd4"

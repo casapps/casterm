@@ -1,0 +1,27 @@
+# Gruvbox Material
+# https://github.com/sainnhe/gruvbox-material
+
+background = "#282828"
+foreground = "#d4be98"
+cursor = "#d4be98"
+cursor_text = "#282828"
+selection_background = "#45403d"
+selection_foreground = "#d4be98"
+
+black = "#32302f"
+red = "#ea6962"
+green = "#a9b665"
+yellow = "#d8a657"
+blue = "#7daea3"
+magenta = "#d3869b"
+cyan = "#89b482"
+white = "#d4be98"
+
+bright_black = "#928374"
+bright_red = "#ea6962"
+bright_green = "#a9b665"
+bright_yellow = "#d8a657"
+bright_blue = "#7daea3"
+bright_magenta = "#d3869b"
+bright_cyan = "#89b482"
+bright_white = "#ebdbb2"

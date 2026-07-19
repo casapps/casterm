@@ -1,0 +1,27 @@
+# Cyber Punk Neon
+# Cyberpunk neon color scheme
+
+background = "#0c0c14"
+foreground = "#e0e0e0"
+cursor = "#ff007f"
+cursor_text = "#0c0c14"
+selection_background = "#1a1a2e"
+selection_foreground = "#e0e0e0"
+
+black = "#0c0c14"
+red = "#ff007f"
+green = "#00ff9f"
+yellow = "#ffff00"
+blue = "#007fff"
+magenta = "#bf00ff"
+cyan = "#00ffff"
+white = "#c0c0c0"
+
+bright_black = "#3d3d5c"
+bright_red = "#ff4fa8"
+bright_green = "#4dffbf"
+bright_yellow = "#ffff66"
+bright_blue = "#4db2ff"
+bright_magenta = "#d966ff"
+bright_cyan = "#66ffff"
+bright_white = "#ffffff"

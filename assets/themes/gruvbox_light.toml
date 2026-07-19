@@ -1,0 +1,27 @@
+# Gruvbox Light
+# https://github.com/morhetz/gruvbox
+
+background = "#fbf1c7"
+foreground = "#3c3836"
+cursor = "#3c3836"
+cursor_text = "#fbf1c7"
+selection_background = "#d65d0e"
+selection_foreground = "#fbf1c7"
+
+black = "#fbf1c7"
+red = "#9d0006"
+green = "#79740e"
+yellow = "#b57614"
+blue = "#076678"
+magenta = "#8f3f71"
+cyan = "#427b58"
+white = "#3c3836"
+
+bright_black = "#928374"
+bright_red = "#cc241d"
+bright_green = "#98971a"
+bright_yellow = "#d79921"
+bright_blue = "#458588"
+bright_magenta = "#b16286"
+bright_cyan = "#689d6a"
+bright_white = "#3c3836"

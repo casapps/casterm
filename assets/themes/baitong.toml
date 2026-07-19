@@ -1,0 +1,27 @@
+# Baitong
+# Thai-inspired dark terminal theme
+
+background = "#0d1b0d"
+foreground = "#c8d8c8"
+cursor = "#7ec87e"
+cursor_text = "#0d1b0d"
+selection_background = "#1e3a1e"
+selection_foreground = "#c8d8c8"
+
+black = "#0d1b0d"
+red = "#e06c75"
+green = "#7ec87e"
+yellow = "#d4a44c"
+blue = "#5fafe8"
+magenta = "#c97bd4"
+cyan = "#56b6c2"
+white = "#c8d8c8"
+
+bright_black = "#4a6a4a"
+bright_red = "#e06c75"
+bright_green = "#9ed89e"
+bright_yellow = "#e8c370"
+bright_blue = "#79c4f2"
+bright_magenta = "#d89adf"
+bright_cyan = "#76cad0"
+bright_white = "#e8f8e8"

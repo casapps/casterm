@@ -1,0 +1,27 @@
+# Oceanic Next
+# https://github.com/voronianski/oceanic-next-color-scheme
+
+background = "#1b2b34"
+foreground = "#cdd3de"
+cursor = "#cdd3de"
+cursor_text = "#1b2b34"
+selection_background = "#4f5b66"
+selection_foreground = "#cdd3de"
+
+black = "#1b2b34"
+red = "#ec5f67"
+green = "#99c794"
+yellow = "#fac863"
+blue = "#6699cc"
+magenta = "#c594c5"
+cyan = "#5fb3b3"
+white = "#c0c5ce"
+
+bright_black = "#65737e"
+bright_red = "#ec5f67"
+bright_green = "#99c794"
+bright_yellow = "#fac863"
+bright_blue = "#6699cc"
+bright_magenta = "#c594c5"
+bright_cyan = "#5fb3b3"
+bright_white = "#d8dee9"

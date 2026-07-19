@@ -1,0 +1,27 @@
+# Nord Light
+# https://www.nordtheme.com/
+
+background = "#eceff4"
+foreground = "#2e3440"
+cursor = "#2e3440"
+cursor_text = "#eceff4"
+selection_background = "#d8dee9"
+selection_foreground = "#2e3440"
+
+black = "#3b4252"
+red = "#bf616a"
+green = "#a3be8c"
+yellow = "#ebcb8b"
+blue = "#5e81ac"
+magenta = "#b48ead"
+cyan = "#88c0d0"
+white = "#e5e9f0"
+
+bright_black = "#4c566a"
+bright_red = "#bf616a"
+bright_green = "#a3be8c"
+bright_yellow = "#ebcb8b"
+bright_blue = "#81a1c1"
+bright_magenta = "#b48ead"
+bright_cyan = "#8fbcbb"
+bright_white = "#eceff4"

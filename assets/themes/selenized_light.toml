@@ -1,0 +1,27 @@
+# Selenized Light
+# https://github.com/jan-warchol/selenized
+
+background = "#fbf3db"
+foreground = "#53676d"
+cursor = "#53676d"
+cursor_text = "#fbf3db"
+selection_background = "#d5cdb6"
+selection_foreground = "#53676d"
+
+black = "#ece3cc"
+red = "#d2212d"
+green = "#489100"
+yellow = "#ad8900"
+blue = "#0072d4"
+magenta = "#ca4898"
+cyan = "#009c8f"
+white = "#909995"
+
+bright_black = "#d5cdb6"
+bright_red = "#cc1729"
+bright_green = "#428b00"
+bright_yellow = "#a78300"
+bright_blue = "#006dce"
+bright_magenta = "#c44392"
+bright_cyan = "#00978a"
+bright_white = "#fbf3db"

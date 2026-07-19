@@ -1,0 +1,27 @@
+# Mariana
+# https://github.com/SublimeText/Mariana (Sublime Text)
+
+background = "#1f2330"
+foreground = "#c0c5ce"
+cursor = "#c0c5ce"
+cursor_text = "#1f2330"
+selection_background = "#2d3144"
+selection_foreground = "#c0c5ce"
+
+black = "#1f2330"
+red = "#ec5f67"
+green = "#99c794"
+yellow = "#fac863"
+blue = "#6699cc"
+magenta = "#c594c5"
+cyan = "#5fb3b3"
+white = "#c0c5ce"
+
+bright_black = "#65737e"
+bright_red = "#ec5f67"
+bright_green = "#99c794"
+bright_yellow = "#fac863"
+bright_blue = "#6699cc"
+bright_magenta = "#c594c5"
+bright_cyan = "#5fb3b3"
+bright_white = "#d8dee9"

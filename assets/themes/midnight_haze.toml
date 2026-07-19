@@ -1,0 +1,27 @@
+# Midnight Haze
+# Midnight blue/purple haze theme
+
+background = "#0e1120"
+foreground = "#c0c8e0"
+cursor = "#7080f0"
+cursor_text = "#0e1120"
+selection_background = "#1c2440"
+selection_foreground = "#c0c8e0"
+
+black = "#0e1120"
+red = "#d06070"
+green = "#60a878"
+yellow = "#c8a060"
+blue = "#5878d0"
+magenta = "#9870c0"
+cyan = "#4898b8"
+white = "#9098b8"
+
+bright_black = "#303860"
+bright_red = "#f07888"
+bright_green = "#78c898"
+bright_yellow = "#e8c078"
+bright_blue = "#7898f0"
+bright_magenta = "#b890e0"
+bright_cyan = "#68b8d8"
+bright_white = "#d0d8f0"

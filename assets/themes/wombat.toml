@@ -1,0 +1,27 @@
+# Wombat
+# https://github.com/djjcast/iterm2-wombat
+
+background = "#1c1c1c"
+foreground = "#f6f3e8"
+cursor = "#dee5c0"
+cursor_text = "#1c1c1c"
+selection_background = "#4f4f4f"
+selection_foreground = "#f6f3e8"
+
+black = "#000000"
+red = "#ff6565"
+green = "#93d44f"
+yellow = "#eab93d"
+blue = "#204a87"
+magenta = "#ce5c00"
+cyan = "#89b6e2"
+white = "#cccccc"
+
+bright_black = "#535353"
+bright_red = "#ff8d8d"
+bright_green = "#c8e7a8"
+bright_yellow = "#ead89b"
+bright_blue = "#6895cc"
+bright_magenta = "#f1b559"
+bright_cyan = "#bad6e2"
+bright_white = "#f6f3e8"

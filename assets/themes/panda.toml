@@ -1,0 +1,27 @@
+# Panda
+# https://github.com/tinkertrain/panda-syntax
+
+background = "#292a2b"
+foreground = "#e6e6e6"
+cursor = "#ff7221"
+cursor_text = "#292a2b"
+selection_background = "#3c3d3e"
+selection_foreground = "#e6e6e6"
+
+black = "#292a2b"
+red = "#ff2c6d"
+green = "#19f9d8"
+yellow = "#ffb86c"
+blue = "#45a9f9"
+magenta = "#ff75b5"
+cyan = "#b084eb"
+white = "#e6e6e6"
+
+bright_black = "#676b79"
+bright_red = "#ff2c6d"
+bright_green = "#19f9d8"
+bright_yellow = "#ffea6c"
+bright_blue = "#45a9f9"
+bright_magenta = "#ff9ac1"
+bright_cyan = "#b084eb"
+bright_white = "#ffffff"

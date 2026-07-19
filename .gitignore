@@ -100,4 +100,8 @@ $RECYCLE.BIN/
 **/*.rewrite.sh
 **/*.refactor.sh
 
+# Rust build artifacts
+/target/
+**/target/
+
 

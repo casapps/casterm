@@ -1,0 +1,27 @@
+# PaperColor Light
+# https://github.com/NLKNguyen/papercolor-theme
+
+background = "#eeeeee"
+foreground = "#444444"
+cursor = "#444444"
+cursor_text = "#eeeeee"
+selection_background = "#d0d0d0"
+selection_foreground = "#444444"
+
+black = "#1c1c1c"
+red = "#af0000"
+green = "#008700"
+yellow = "#5f8700"
+blue = "#0087af"
+magenta = "#878787"
+cyan = "#005f87"
+white = "#444444"
+
+bright_black = "#bcbcbc"
+bright_red = "#d70000"
+bright_green = "#d70087"
+bright_yellow = "#8700af"
+bright_blue = "#d75f00"
+bright_magenta = "#d75f00"
+bright_cyan = "#005faf"
+bright_white = "#eeeeee"

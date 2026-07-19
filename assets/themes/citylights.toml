@@ -1,0 +1,27 @@
+# City Lights
+# https://citylights.xyz/
+
+background = "#1d252c"
+foreground = "#718ca1"
+cursor = "#528bff"
+cursor_text = "#1d252c"
+selection_background = "#28394f"
+selection_foreground = "#b7c5d3"
+
+black = "#333f4a"
+red = "#d95468"
+green = "#8bd49c"
+yellow = "#ebbf83"
+blue = "#539afc"
+magenta = "#b62d65"
+cyan = "#70e1e8"
+white = "#718ca1"
+
+bright_black = "#4e6175"
+bright_red = "#d95468"
+bright_green = "#8bd49c"
+bright_yellow = "#ebbf83"
+bright_blue = "#539afc"
+bright_magenta = "#b62d65"
+bright_cyan = "#70e1e8"
+bright_white = "#b7c5d3"

@@ -1,0 +1,27 @@
+# Google Dark
+# https://github.com/alacritty/alacritty-theme
+
+background = "#1d1f21"
+foreground = "#c5c8c6"
+cursor = "#c5c8c6"
+cursor_text = "#1d1f21"
+selection_background = "#373b41"
+selection_foreground = "#c5c8c6"
+
+black = "#1d1f21"
+red = "#cc342b"
+green = "#198844"
+yellow = "#fba922"
+blue = "#3971ed"
+magenta = "#a36ac7"
+cyan = "#3971ed"
+white = "#c5c8c6"
+
+bright_black = "#969896"
+bright_red = "#cc342b"
+bright_green = "#198844"
+bright_yellow = "#fba922"
+bright_blue = "#3971ed"
+bright_magenta = "#a36ac7"
+bright_cyan = "#3971ed"
+bright_white = "#ffffff"

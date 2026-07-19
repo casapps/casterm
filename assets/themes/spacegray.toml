@@ -1,0 +1,27 @@
+# Spacegray
+# https://github.com/SublimeText/spacegray
+
+background = "#20242c"
+foreground = "#b0b8c8"
+cursor = "#b0b8c8"
+cursor_text = "#20242c"
+selection_background = "#343d4a"
+selection_foreground = "#b0b8c8"
+
+black = "#15181e"
+red = "#b04b57"
+green = "#87a55d"
+yellow = "#c6a44a"
+blue = "#5d84a8"
+magenta = "#8868a8"
+cyan = "#5d99a8"
+white = "#808898"
+
+bright_black = "#404858"
+bright_red = "#c46b74"
+bright_green = "#a0c078"
+bright_yellow = "#dfc065"
+bright_blue = "#78a8cc"
+bright_magenta = "#a888cc"
+bright_cyan = "#78c0cc"
+bright_white = "#c0c8d8"

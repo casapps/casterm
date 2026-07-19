@@ -1,0 +1,27 @@
+# Falcon
+# https://github.com/fenetikm/falcon
+
+background = "#020221"
+foreground = "#b4b4b9"
+cursor = "#c8d0e3"
+cursor_text = "#020221"
+selection_background = "#06062d"
+selection_foreground = "#b4b4b9"
+
+black = "#000004"
+red = "#ff3600"
+green = "#718e3f"
+yellow = "#ffc552"
+blue = "#635196"
+magenta = "#ff761a"
+cyan = "#34bfa4"
+white = "#b4b4b9"
+
+bright_black = "#020228"
+bright_red = "#ff4927"
+bright_green = "#909d63"
+bright_yellow = "#ffd37a"
+bright_blue = "#7e6ead"
+bright_magenta = "#ff9036"
+bright_cyan = "#56d4b9"
+bright_white = "#f8f8ff"

@@ -1,0 +1,27 @@
+# Acme
+# Plan 9 Acme editor inspired theme (light)
+
+background = "#ffffea"
+foreground = "#000000"
+cursor = "#000000"
+cursor_text = "#ffffea"
+selection_background = "#eaffe8"
+selection_foreground = "#000000"
+
+black = "#000000"
+red = "#c82828"
+green = "#008800"
+yellow = "#887700"
+blue = "#0033aa"
+magenta = "#770088"
+cyan = "#006677"
+white = "#888888"
+
+bright_black = "#444444"
+bright_red = "#e04040"
+bright_green = "#00aa00"
+bright_yellow = "#aa9900"
+bright_blue = "#0055cc"
+bright_magenta = "#9900bb"
+bright_cyan = "#008899"
+bright_white = "#ffffea"

@@ -1,0 +1,27 @@
+# iTerm2 Default
+# https://iterm2.com/
+
+background = "#000000"
+foreground = "#ffffff"
+cursor = "#ffffff"
+cursor_text = "#000000"
+selection_background = "#3d82ef"
+selection_foreground = "#ffffff"
+
+black = "#000000"
+red = "#c91b00"
+green = "#00c200"
+yellow = "#c7c400"
+blue = "#0225c7"
+magenta = "#ca30c7"
+cyan = "#00c5c7"
+white = "#c7c7c7"
+
+bright_black = "#676767"
+bright_red = "#ff6d67"
+bright_green = "#5ff967"
+bright_yellow = "#fefb67"
+bright_blue = "#6871ff"
+bright_magenta = "#ff76ff"
+bright_cyan = "#5ffdff"
+bright_white = "#feffff"

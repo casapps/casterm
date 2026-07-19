@@ -1,0 +1,27 @@
+# Hatsune Miku
+# Vocaloid character inspired teal theme
+
+background = "#1a2a2a"
+foreground = "#d0eaea"
+cursor = "#39c5bb"
+cursor_text = "#1a2a2a"
+selection_background = "#1e3c3c"
+selection_foreground = "#d0eaea"
+
+black = "#1a2a2a"
+red = "#e05a68"
+green = "#39c5bb"
+yellow = "#d4b846"
+blue = "#4a9fbe"
+magenta = "#c887c5"
+cyan = "#39c5bb"
+white = "#9dbfbf"
+
+bright_black = "#405858"
+bright_red = "#ff7a86"
+bright_green = "#5fe0d5"
+bright_yellow = "#f0d060"
+bright_blue = "#6abcdf"
+bright_magenta = "#e0a0e0"
+bright_cyan = "#80dfdf"
+bright_white = "#d0eaea"

@@ -1,0 +1,27 @@
+# Enfocado Light
+# https://github.com/wuelnerdotexe/vim-enfocado
+
+background = "#f5f5f0"
+foreground = "#474747"
+cursor = "#474747"
+cursor_text = "#f5f5f0"
+selection_background = "#e0e0d8"
+selection_foreground = "#474747"
+
+black = "#2a2a2a"
+red = "#cc3333"
+green = "#2e7d32"
+yellow = "#e65c00"
+blue = "#1565c0"
+magenta = "#7b1fa2"
+cyan = "#00838f"
+white = "#747474"
+
+bright_black = "#5c5c5c"
+bright_red = "#e53935"
+bright_green = "#43a047"
+bright_yellow = "#fb8c00"
+bright_blue = "#1976d2"
+bright_magenta = "#8e24aa"
+bright_cyan = "#00acc1"
+bright_white = "#f5f5f0"

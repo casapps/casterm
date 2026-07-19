@@ -1,0 +1,44 @@
+# CASTERM Development Compose
+# Human-only development environment
+# Usage: docker compose -f docker/docker-compose.dev.yml run dev
+
+services:
+  dev:
+    image: casjaysdev/rust:latest
+    working_dir: /work
+    volumes:
+      - ..:/work
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/work/target
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+      - RUSTFLAGS
+      - RUST_LOG=${RUST_LOG:-debug}
+    stdin_open: true
+    tty: true
+    command: bash
+
+  # X11 forwarding for GUI dev
+  gui:
+    image: casjaysdev/rust:latest
+    working_dir: /work
+    volumes:
+      - ..:/work
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/work/target
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY:-~/.Xauthority}:/tmp/.docker.xauth:ro
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+      - DISPLAY
+      - XAUTHORITY=/tmp/.docker.xauth
+      - RUST_LOG=${RUST_LOG:-debug}
+    devices:
+      - /dev/dri
+    stdin_open: true
+    tty: true
+    command: cargo run -- --ui gui
+
+volumes:
+  cargo-cache:
+  target-cache:

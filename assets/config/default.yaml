@@ -1,0 +1,58 @@
+# CASTERM Default Configuration
+
+shell:
+  program: ""
+  args: []
+  env: {}
+  login_shell: true
+
+theme:
+  mode: dark
+  name: dracula
+  file: ""
+
+font:
+  family: []
+  size: 14.0
+  line_height: 1.2
+
+cursor:
+  style: block
+  blink: true
+  blink_interval_ms: 500
+
+behavior:
+  scrollback_lines: 10000
+  copy_on_select: true
+  close_on_exit: true
+  confirm_close: true
+  focus_follows_mouse: false
+
+multiplexer:
+  prefix_key: "Ctrl+Space"
+  mouse: true
+  history_limit: 2000
+
+status_bar:
+  enabled: true
+  position: bottom
+  left:
+    - "{session}"
+    - "{window}"
+  right:
+    - "{pane}"
+    - "{time}"
+
+key_bindings: {}
+
+connections:
+  ssh: []
+  serial: []
+
+logging:
+  level: info
+  file: ""
+
+updates:
+  check_on_start: true
+  auto_update: false

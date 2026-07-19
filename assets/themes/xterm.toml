@@ -1,0 +1,27 @@
+# xterm Default
+# Classic xterm color scheme
+
+background = "#000000"
+foreground = "#ffffff"
+cursor = "#ffffff"
+cursor_text = "#000000"
+selection_background = "#b3d7ff"
+selection_foreground = "#000000"
+
+black = "#000000"
+red = "#cd0000"
+green = "#00cd00"
+yellow = "#cdcd00"
+blue = "#0000ee"
+magenta = "#cd00cd"
+cyan = "#00cdcd"
+white = "#e5e5e5"
+
+bright_black = "#7f7f7f"
+bright_red = "#ff0000"
+bright_green = "#00ff00"
+bright_yellow = "#ffff00"
+bright_blue = "#5c5cff"
+bright_magenta = "#ff00ff"
+bright_cyan = "#00ffff"
+bright_white = "#ffffff"

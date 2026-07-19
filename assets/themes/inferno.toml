@@ -1,0 +1,27 @@
+# Inferno
+# Fire and lava inspired dark theme
+
+background = "#1a0a00"
+foreground = "#e8c090"
+cursor = "#ff6600"
+cursor_text = "#1a0a00"
+selection_background = "#3a1800"
+selection_foreground = "#e8c090"
+
+black = "#1a0a00"
+red = "#cc2200"
+green = "#a08000"
+yellow = "#ff8800"
+blue = "#803000"
+magenta = "#cc4400"
+cyan = "#cc6600"
+white = "#c08060"
+
+bright_black = "#604020"
+bright_red = "#ff4400"
+bright_green = "#c0a000"
+bright_yellow = "#ffaa00"
+bright_blue = "#b05020"
+bright_magenta = "#ff6622"
+bright_cyan = "#ff8800"
+bright_white = "#ffe0c0"

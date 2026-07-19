@@ -1,0 +1,27 @@
+# Tomorrow
+# https://github.com/chriskempson/tomorrow-theme
+
+background = "#ffffff"
+foreground = "#4d4d4c"
+cursor = "#4d4d4c"
+cursor_text = "#ffffff"
+selection_background = "#d6d6d6"
+selection_foreground = "#4d4d4c"
+
+black = "#000000"
+red = "#c82829"
+green = "#718c00"
+yellow = "#eab700"
+blue = "#4271ae"
+magenta = "#8959a8"
+cyan = "#3e999f"
+white = "#8e908c"
+
+bright_black = "#696969"
+bright_red = "#d54e53"
+bright_green = "#8ec43d"
+bright_yellow = "#e7c547"
+bright_blue = "#7aa6da"
+bright_magenta = "#c397d8"
+bright_cyan = "#70c0b1"
+bright_white = "#ffffff"

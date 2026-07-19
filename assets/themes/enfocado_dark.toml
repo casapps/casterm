@@ -1,0 +1,27 @@
+# Enfocado Dark
+# https://github.com/wuelnerdotexe/vim-enfocado
+
+background = "#1b1b23"
+foreground = "#b9b9c3"
+cursor = "#b9b9c3"
+cursor_text = "#1b1b23"
+selection_background = "#2d2d3b"
+selection_foreground = "#b9b9c3"
+
+black = "#1b1b23"
+red = "#e06c75"
+green = "#56b6c2"
+yellow = "#d19a66"
+blue = "#61afef"
+magenta = "#c678dd"
+cyan = "#56b6c2"
+white = "#b9b9c3"
+
+bright_black = "#5c6370"
+bright_red = "#e06c75"
+bright_green = "#98c379"
+bright_yellow = "#e5c07b"
+bright_blue = "#61afef"
+bright_magenta = "#c678dd"
+bright_cyan = "#56b6c2"
+bright_white = "#ffffff"

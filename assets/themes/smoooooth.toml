@@ -1,0 +1,27 @@
+# Smoooooth
+# Smooth gradient dark theme
+
+background = "#1a1b27"
+foreground = "#c0c5e0"
+cursor = "#7c85d0"
+cursor_text = "#1a1b27"
+selection_background = "#2c3050"
+selection_foreground = "#c0c5e0"
+
+black = "#1a1b27"
+red = "#d05470"
+green = "#5da873"
+yellow = "#d4a84e"
+blue = "#5a7ec7"
+magenta = "#8e6cbd"
+cyan = "#4da8b0"
+white = "#9098b8"
+
+bright_black = "#3c4060"
+bright_red = "#e87090"
+bright_green = "#70c88a"
+bright_yellow = "#eec068"
+bright_blue = "#78a0e8"
+bright_magenta = "#aa88d8"
+bright_cyan = "#68c8d0"
+bright_white = "#d0d8f0"

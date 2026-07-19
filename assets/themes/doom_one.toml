@@ -1,0 +1,27 @@
+# Doom One
+# https://github.com/doomemacs/themes
+
+background = "#282c34"
+foreground = "#bbc2cf"
+cursor = "#528bff"
+cursor_text = "#282c34"
+selection_background = "#3e4451"
+selection_foreground = "#bbc2cf"
+
+black = "#1c1f24"
+red = "#ff6c6b"
+green = "#98be65"
+yellow = "#da8548"
+blue = "#51afef"
+magenta = "#c678dd"
+cyan = "#5699af"
+white = "#202328"
+
+bright_black = "#5b6268"
+bright_red = "#da8548"
+bright_green = "#4db5bd"
+bright_yellow = "#ecbe7b"
+bright_blue = "#3071db"
+bright_magenta = "#a9a1e1"
+bright_cyan = "#46d9ff"
+bright_white = "#dfdfdf"

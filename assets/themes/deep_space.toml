@@ -1,0 +1,27 @@
+# Deep Space
+# https://github.com/nicktindall/deep-space-theme
+
+background = "#030b1c"
+foreground = "#7b8fa5"
+cursor = "#5283a2"
+cursor_text = "#030b1c"
+selection_background = "#0d1e36"
+selection_foreground = "#7b8fa5"
+
+black = "#061229"
+red = "#e35b00"
+green = "#78bd65"
+yellow = "#e6b933"
+blue = "#5283a2"
+magenta = "#7c589b"
+cyan = "#3c8c8f"
+white = "#7b8fa5"
+
+bright_black = "#384d68"
+bright_red = "#ff7b33"
+bright_green = "#a3f5ad"
+bright_yellow = "#f5e27b"
+bright_blue = "#7bbfe8"
+bright_magenta = "#ab8ad6"
+bright_cyan = "#4db2b5"
+bright_white = "#c2d4e8"

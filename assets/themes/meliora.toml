@@ -1,0 +1,27 @@
+# Meliora
+# https://github.com/ramojus/mellifluous.nvim
+
+background = "#1a1519"
+foreground = "#c9bcbe"
+cursor = "#c9bcbe"
+cursor_text = "#1a1519"
+selection_background = "#2e2530"
+selection_foreground = "#c9bcbe"
+
+black = "#1a1519"
+red = "#e06c75"
+green = "#6f9c5f"
+yellow = "#d99d2a"
+blue = "#5580b3"
+magenta = "#9671c5"
+cyan = "#3d909a"
+white = "#9e8fa3"
+
+bright_black = "#56424f"
+bright_red = "#e06c75"
+bright_green = "#7aba69"
+bright_yellow = "#f2b93d"
+bright_blue = "#6898d4"
+bright_magenta = "#b08fde"
+bright_cyan = "#4db3bf"
+bright_white = "#c9bcbe"

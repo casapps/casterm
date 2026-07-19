@@ -1,0 +1,27 @@
+# The Lovelace
+# https://github.com/cseelus/vim-colors-lucid
+
+background = "#1d1f28"
+foreground = "#fdfdfd"
+cursor = "#c574dd"
+cursor_text = "#1d1f28"
+selection_background = "#2e303e"
+selection_foreground = "#fdfdfd"
+
+black = "#1d1f28"
+red = "#f71118"
+green = "#18de18"
+yellow = "#dede18"
+blue = "#6dcef5"
+magenta = "#c574dd"
+cyan = "#18de18"
+white = "#fdfdfd"
+
+bright_black = "#2e303e"
+bright_red = "#de1e1e"
+bright_green = "#2ede2e"
+bright_yellow = "#e7e72e"
+bright_blue = "#7fe7f7"
+bright_magenta = "#d586ef"
+bright_cyan = "#2ede2e"
+bright_white = "#fdfdfd"

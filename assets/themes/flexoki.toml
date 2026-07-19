@@ -1,0 +1,27 @@
+# Flexoki Dark
+# https://github.com/kepano/flexoki
+
+background = "#100f0f"
+foreground = "#cecdc3"
+cursor = "#d14d41"
+cursor_text = "#100f0f"
+selection_background = "#282726"
+selection_foreground = "#cecdc3"
+
+black = "#100f0f"
+red = "#d14d41"
+green = "#879a39"
+yellow = "#d0a215"
+blue = "#4385be"
+magenta = "#ce5d97"
+cyan = "#3aa99f"
+white = "#b7b5ac"
+
+bright_black = "#575653"
+bright_red = "#d14d41"
+bright_green = "#879a39"
+bright_yellow = "#d0a215"
+bright_blue = "#4385be"
+bright_magenta = "#ce5d97"
+bright_cyan = "#3aa99f"
+bright_white = "#fffcf0"

@@ -1,0 +1,27 @@
+# HardHacker
+# https://github.com/hardhackerlabs/theme-alacritty
+
+background = "#282433"
+foreground = "#e5d4ff"
+cursor = "#71a4fb"
+cursor_text = "#282433"
+selection_background = "#3b3457"
+selection_foreground = "#e5d4ff"
+
+black = "#31283b"
+red = "#ff6e86"
+green = "#bcec5c"
+yellow = "#f9d770"
+blue = "#71a4fb"
+magenta = "#d999f9"
+cyan = "#7decee"
+white = "#c8aeff"
+
+bright_black = "#5b5373"
+bright_red = "#ff8fa0"
+bright_green = "#d5f56f"
+bright_yellow = "#fbe08a"
+bright_blue = "#8dbdff"
+bright_magenta = "#e6b3ff"
+bright_cyan = "#97f3f5"
+bright_white = "#e5d4ff"

@@ -1,0 +1,27 @@
+# Seashells
+# Warm ocean seashell inspired theme
+
+background = "#1c1912"
+foreground = "#e0d8c0"
+cursor = "#d4a060"
+cursor_text = "#1c1912"
+selection_background = "#322e22"
+selection_foreground = "#e0d8c0"
+
+black = "#1c1912"
+red = "#c84820"
+green = "#789050"
+yellow = "#c89040"
+blue = "#4878a0"
+magenta = "#985888"
+cyan = "#40a098"
+white = "#c0b898"
+
+bright_black = "#605840"
+bright_red = "#e06030"
+bright_green = "#98b068"
+bright_yellow = "#e8b060"
+bright_blue = "#6898c0"
+bright_magenta = "#c080a8"
+bright_cyan = "#60c0b8"
+bright_white = "#e0d8c0"

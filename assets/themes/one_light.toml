@@ -1,0 +1,27 @@
+# One Light
+# Based on Atom's One Light theme
+
+background = "#fafafa"
+foreground = "#383a42"
+cursor = "#526fff"
+cursor_text = "#fafafa"
+selection_background = "#e5e5e6"
+selection_foreground = "#383a42"
+
+black = "#383a42"
+red = "#e45649"
+green = "#50a14f"
+yellow = "#c18401"
+blue = "#0184bb"
+magenta = "#a626a4"
+cyan = "#0997b3"
+white = "#fafafa"
+
+bright_black = "#4f525e"
+bright_red = "#e45649"
+bright_green = "#50a14f"
+bright_yellow = "#c18401"
+bright_blue = "#0184bb"
+bright_magenta = "#a626a4"
+bright_cyan = "#0997b3"
+bright_white = "#ffffff"

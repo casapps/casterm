@@ -1,0 +1,27 @@
+# PaperColor Dark
+# https://github.com/NLKNguyen/papercolor-theme
+
+background = "#1c1c1c"
+foreground = "#d0d0d0"
+cursor = "#d0d0d0"
+cursor_text = "#1c1c1c"
+selection_background = "#3a3a3a"
+selection_foreground = "#d0d0d0"
+
+black = "#1c1c1c"
+red = "#af005f"
+green = "#5faf00"
+yellow = "#d7af5f"
+blue = "#5fafd7"
+magenta = "#808080"
+cyan = "#d7875f"
+white = "#d0d0d0"
+
+bright_black = "#585858"
+bright_red = "#5faf5f"
+bright_green = "#afd700"
+bright_yellow = "#af87d7"
+bright_blue = "#ffaf00"
+bright_magenta = "#ff5faf"
+bright_cyan = "#00afaf"
+bright_white = "#5f8787"

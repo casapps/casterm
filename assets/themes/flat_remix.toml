@@ -1,0 +1,27 @@
+# Flat Remix
+# https://github.com/daniruiz/flat-remix
+
+background = "#272a34"
+foreground = "#d8d9da"
+cursor = "#9fa8b2"
+cursor_text = "#272a34"
+selection_background = "#3a3d4d"
+selection_foreground = "#d8d9da"
+
+black = "#1f2229"
+red = "#d8315b"
+green = "#4fbf91"
+yellow = "#e9c46a"
+blue = "#1c8bb4"
+magenta = "#8c4dbf"
+cyan = "#22b3b3"
+white = "#9fa8b2"
+
+bright_black = "#5a5d65"
+bright_red = "#e6002e"
+bright_green = "#3fe4a0"
+bright_yellow = "#ffda7d"
+bright_blue = "#1dacd6"
+bright_magenta = "#9933ff"
+bright_cyan = "#0dd1d1"
+bright_white = "#d8d9da"

@@ -1,0 +1,27 @@
+# Ganbaru
+# Japanese-inspired dark theme
+
+background = "#1c1e21"
+foreground = "#cdd6e0"
+cursor = "#f0a020"
+cursor_text = "#1c1e21"
+selection_background = "#2d3138"
+selection_foreground = "#cdd6e0"
+
+black = "#1c1e21"
+red = "#e05560"
+green = "#70b950"
+yellow = "#e0ad40"
+blue = "#5080c0"
+magenta = "#a060c0"
+cyan = "#30a0a0"
+white = "#b0b8c0"
+
+bright_black = "#505860"
+bright_red = "#f07080"
+bright_green = "#90d060"
+bright_yellow = "#f0c060"
+bright_blue = "#70a0f0"
+bright_magenta = "#d080f0"
+bright_cyan = "#40d0d0"
+bright_white = "#e0e8f0"

@@ -1,0 +1,27 @@
+# Snazzy
+# https://github.com/sindresorhus/hyper-snazzy
+
+background = "#282a36"
+foreground = "#eff0eb"
+cursor = "#97979b"
+cursor_text = "#282a36"
+selection_background = "#3e4451"
+selection_foreground = "#eff0eb"
+
+black = "#282a36"
+red = "#ff5c57"
+green = "#5af78e"
+yellow = "#f3f99d"
+blue = "#57c7ff"
+magenta = "#ff6ac1"
+cyan = "#9aedfe"
+white = "#f1f1f0"
+
+bright_black = "#686868"
+bright_red = "#ff5c57"
+bright_green = "#5af78e"
+bright_yellow = "#f3f99d"
+bright_blue = "#57c7ff"
+bright_magenta = "#ff6ac1"
+bright_cyan = "#9aedfe"
+bright_white = "#eff0eb"

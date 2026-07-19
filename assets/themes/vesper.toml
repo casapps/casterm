@@ -1,0 +1,27 @@
+# Vesper
+# https://github.com/raunofreiberg/vesper
+
+background = "#101010"
+foreground = "#ffffff"
+cursor = "#ff9900"
+cursor_text = "#101010"
+selection_background = "#333333"
+selection_foreground = "#ffffff"
+
+black = "#101010"
+red = "#ff3333"
+green = "#99c945"
+yellow = "#ff9900"
+blue = "#4da9d0"
+magenta = "#b891c9"
+cyan = "#4da9d0"
+white = "#cbcbcb"
+
+bright_black = "#4c4c4c"
+bright_red = "#ff6666"
+bright_green = "#b3d96b"
+bright_yellow = "#ffb333"
+bright_blue = "#73c4e0"
+bright_magenta = "#cba8e0"
+bright_cyan = "#73c4e0"
+bright_white = "#ffffff"

@@ -1,0 +1,27 @@
+# Hyper
+# https://github.com/vercel/hyper
+
+background = "#000000"
+foreground = "#ffffff"
+cursor = "#ffffff"
+cursor_text = "#000000"
+selection_background = "#333333"
+selection_foreground = "#ffffff"
+
+black = "#000000"
+red = "#fe0100"
+green = "#33ff00"
+yellow = "#feff00"
+blue = "#0066ff"
+magenta = "#cc00ff"
+cyan = "#00ffff"
+white = "#d0d0d0"
+
+bright_black = "#808080"
+bright_red = "#fe0100"
+bright_green = "#33ff00"
+bright_yellow = "#feff00"
+bright_blue = "#0066ff"
+bright_magenta = "#cc00ff"
+bright_cyan = "#00ffff"
+bright_white = "#ffffff"

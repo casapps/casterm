@@ -1,0 +1,27 @@
+# Material Theme
+# https://github.com/equinusocio/vsc-material-theme
+
+background = "#212121"
+foreground = "#eeffff"
+cursor = "#ffcc00"
+cursor_text = "#212121"
+selection_background = "#80cbc4"
+selection_foreground = "#212121"
+
+black = "#000000"
+red = "#f07178"
+green = "#c3e88d"
+yellow = "#ffcb6b"
+blue = "#82aaff"
+magenta = "#c792ea"
+cyan = "#89ddf7"
+white = "#ffffff"
+
+bright_black = "#546e7a"
+bright_red = "#ff5370"
+bright_green = "#c3e88d"
+bright_yellow = "#ffcb6b"
+bright_blue = "#82aaff"
+bright_magenta = "#c792ea"
+bright_cyan = "#89ddf7"
+bright_white = "#eeffff"

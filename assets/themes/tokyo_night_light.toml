@@ -1,0 +1,27 @@
+# Tokyo Night Light
+# https://github.com/enkia/tokyo-night-vscode-theme
+
+background = "#d5d6db"
+foreground = "#343b58"
+cursor = "#343b58"
+cursor_text = "#d5d6db"
+selection_background = "#b7c1e0"
+selection_foreground = "#343b58"
+
+black = "#343b58"
+red = "#8c4351"
+green = "#485e30"
+yellow = "#8f5e15"
+blue = "#34548a"
+magenta = "#5a4a78"
+cyan = "#0f4b6e"
+white = "#8990a7"
+
+bright_black = "#6172b0"
+bright_red = "#8c4351"
+bright_green = "#485e30"
+bright_yellow = "#8f5e15"
+bright_blue = "#34548a"
+bright_magenta = "#5a4a78"
+bright_cyan = "#0f4b6e"
+bright_white = "#d5d6db"

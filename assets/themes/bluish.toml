@@ -1,0 +1,27 @@
+# Bluish
+# Blue-toned dark terminal theme
+
+background = "#1a1f2e"
+foreground = "#c0c8d8"
+cursor = "#80a8c8"
+cursor_text = "#1a1f2e"
+selection_background = "#2a3550"
+selection_foreground = "#c0c8d8"
+
+black = "#1a1f2e"
+red = "#d05464"
+green = "#60b48a"
+yellow = "#e0c060"
+blue = "#4080b0"
+magenta = "#887abe"
+cyan = "#60a8c0"
+white = "#c0c8d8"
+
+bright_black = "#4a5568"
+bright_red = "#f07888"
+bright_green = "#80c8a8"
+bright_yellow = "#f0d080"
+bright_blue = "#60a0d0"
+bright_magenta = "#a89ade"
+bright_cyan = "#80c8e0"
+bright_white = "#e0e8f8"

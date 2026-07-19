@@ -1,0 +1,27 @@
+# Dark Pride
+# Pride-flag-inspired dark theme
+
+background = "#1a1a1a"
+foreground = "#e0e0e0"
+cursor = "#e040fb"
+cursor_text = "#1a1a1a"
+selection_background = "#333333"
+selection_foreground = "#e0e0e0"
+
+black = "#1a1a1a"
+red = "#ff0018"
+green = "#00c020"
+yellow = "#ffd900"
+blue = "#0034f4"
+magenta = "#760087"
+cyan = "#ff8c00"
+white = "#e0e0e0"
+
+bright_black = "#555555"
+bright_red = "#ff4d57"
+bright_green = "#4dda6b"
+bright_yellow = "#ffe94d"
+bright_blue = "#4d73f8"
+bright_magenta = "#b24dcc"
+bright_cyan = "#ffb347"
+bright_white = "#ffffff"

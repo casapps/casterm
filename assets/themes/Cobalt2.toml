@@ -1,0 +1,27 @@
+# Cobalt2
+# https://github.com/wesbos/cobalt2
+
+background = "#193549"
+foreground = "#ffffff"
+cursor = "#f0cc09"
+cursor_text = "#193549"
+selection_background = "#0050a0"
+selection_foreground = "#ffffff"
+
+black = "#000000"
+red = "#ff0000"
+green = "#3ad900"
+yellow = "#ffc600"
+blue = "#0088ff"
+magenta = "#9d00ff"
+cyan = "#00c5c7"
+white = "#d0d0d0"
+
+bright_black = "#808080"
+bright_red = "#ff0000"
+bright_green = "#3ad900"
+bright_yellow = "#ffc600"
+bright_blue = "#0088ff"
+bright_magenta = "#9d00ff"
+bright_cyan = "#00c5c7"
+bright_white = "#ffffff"

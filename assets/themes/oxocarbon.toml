@@ -1,0 +1,27 @@
+# Oxocarbon
+# https://github.com/nyoom-engineering/oxocarbon.nvim
+
+background = "#161616"
+foreground = "#f2f4f8"
+cursor = "#78a9ff"
+cursor_text = "#161616"
+selection_background = "#393939"
+selection_foreground = "#f2f4f8"
+
+black = "#262626"
+red = "#ff7eb6"
+green = "#42be65"
+yellow = "#ffe97b"
+blue = "#78a9ff"
+magenta = "#be95ff"
+cyan = "#08bdba"
+white = "#dde1e6"
+
+bright_black = "#393939"
+bright_red = "#ff7eb6"
+bright_green = "#42be65"
+bright_yellow = "#ffe97b"
+bright_blue = "#78a9ff"
+bright_magenta = "#be95ff"
+bright_cyan = "#08bdba"
+bright_white = "#ffffff"

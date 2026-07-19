@@ -1,0 +1,27 @@
+# Rigel
+# https://github.com/Rigel-Theme/rigel
+
+background = "#002635"
+foreground = "#e6e6dc"
+cursor = "#ffcc1b"
+cursor_text = "#002635"
+selection_background = "#003748"
+selection_foreground = "#e6e6dc"
+
+black = "#00384d"
+red = "#c43060"
+green = "#02a379"
+yellow = "#f08e48"
+blue = "#4066d5"
+magenta = "#bf85cc"
+cyan = "#59c5d5"
+white = "#9a9a7e"
+
+bright_black = "#517f8d"
+bright_red = "#ff5a67"
+bright_green = "#00d787"
+bright_yellow = "#ffcc1b"
+bright_blue = "#84b0d8"
+bright_magenta = "#de8ec6"
+bright_cyan = "#59c5d5"
+bright_white = "#e6e6dc"
