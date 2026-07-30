@@ -266,6 +266,8 @@ The single binary contains **everything the app needs to function**. The user is
 | Before task completion | Full compliance check | Ensure correctness |
 | When uncertain about a spec requirement | Read that specific section — never guess, never rely on prior-session memory | Accuracy without waste |
 
+**Hook-enforced:** `spec-guard.sh` blocks Edit/Write on project files until AI.md/SPEC.md has been Read this session; the gate re-arms after every compaction.
+
 ## Self-Validation Loop
 
 **AI MUST verify its own work with real tools before reporting a task as done. Do not rely on "the code looks right."**
@@ -784,11 +786,11 @@ docker/
 │   └── usr/local/bin/entrypoint.sh         # sets non-root UID/GID, prepares cache/target dirs; called by tini → entrypoint.sh → app
 ├── docker-compose.yml                      # production/human runtime — image: ghcr.io/{org}/{name}:latest
 ├── docker-compose.dev.yml                  # human development — image: ghcr.io/{org}/{name}:devel
-├── docker-compose.test.yml                 # automated testing (AI-usable) — builds from Dockerfile, ephemeral tmpfs, named bridge net
+├── docker-compose.test.yml                 # automated testing — builds from Dockerfile, valkey cache w/ ephemeral tmpfs, named bridge net; AI prefers tests/ scripts over running this directly
 └── README.md                               # how to build the image, run tests, run GUI with display forwarding
 ```
 
-All three compose files live under `docker/` (per `dockerfile_conventions.md` → "Docker Compose / File locations"). A top-level `docker-compose.yml` symlink or shim is allowed for ergonomics, but the source of truth lives under `docker/`. AI MUST only run `docker-compose.test.yml`; `docker-compose.yml` and `docker-compose.dev.yml` are human-only.
+All three compose files live under `docker/` (per `dockerfile_conventions.md` → "Docker Compose / File locations"). A top-level `docker-compose.yml` symlink or shim is allowed for ergonomics, but the source of truth lives under `docker/`. `docker-compose.yml` and `docker-compose.dev.yml` are human-only; AI's preferred interface for `docker-compose.test.yml` is the project's `tests/` scripts rather than a direct invocation.
 
 ### Toolchain Image
 
@@ -1476,6 +1478,18 @@ jobs:
 - GitLab: `secret-scan` runs as a docker job using `image: trufflesecurity/trufflehog:latest` with `GIT_DEPTH: 0`; `image-scan` uses `image: aquasec/trivy:0.70.0`.
 - Jenkins: `Security` stage uses `parallel {}`; truffleHog and Trivy each run via `docker.image(...).inside { ... }`.
 - All providers: same gates, same severities, same exit conditions — no weaker subset on any provider.
+
+## Post-Push CI Verification
+
+`act --list` and a local `cargo test` pass only prove the workflow's syntax/job graph is valid and the code works in the local environment — they are not the real CI build. Every push (normal feature-branch push or an emergency direct push to the default branch) triggers a real CI run on the provider's infrastructure with real secrets, real matrix jobs, and the real `casjaysdev/rust:latest` toolchain image; any of those can fail even when every local check passed. Treating "local checks passed" as equivalent to "the build is green" is itself a bug.
+
+After every push, check the triggered run's status:
+- **GitHub**: `gh run list --branch {branch} --commit {sha} --limit 1` then `gh run watch {run-id}` (or `gh run view {run-id} --json status,conclusion`)
+- **GitLab**: `curl -qsSf -H "PRIVATE-TOKEN: $GITLAB_TOKEN" ".../repository/commits/{sha}/statuses"`
+- **Gitea / Forgejo**: `curl -qsSf -H "Authorization: token $TOKEN" ".../commits/{sha}/status"`
+- **Jenkins**: poll the job's `lastBuild/api/json` for `result`
+
+Build failed → this is a bug, not a note for later; diagnose the root cause and fix it with a follow-up commit — never leave the default branch red. Build pending/running → the task is not done yet; wait and re-check. No CI config in the project → this step is a no-op.
 
 ## Suggested CI Steps
 
