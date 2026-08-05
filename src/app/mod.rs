@@ -1,5 +1,6 @@
 //! Core application logic
 
+pub mod keybindings;
 pub mod multiplexer;
 pub mod pty;
 pub mod serial;

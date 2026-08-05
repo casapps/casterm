@@ -23,6 +23,7 @@ use ratatui::{
     Terminal,
 };
 
+use crate::app::keybindings::{KeymapResolver, Resolved};
 use crate::app::pty::{Pty, PtyConfig};
 use crate::app::terminal::{TermColor, Terminal as TerminalEmulator, TerminalSize};
 use crate::app::vte_processor::VteProcessor;
@@ -33,15 +34,6 @@ use crate::support::error::{CastermError, Result};
 enum PtyMsg {
     Data(Vec<u8>),
     Exit,
-}
-
-/// Current input mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InputMode {
-    /// All keys go directly to the PTY
-    Terminal,
-    /// Next key after prefix triggers a multiplexer command
-    Prefix,
 }
 
 /// Full TUI application state
@@ -55,7 +47,7 @@ struct TuiApp {
     session_name: String,
     window_index: usize,
     pane_index: usize,
-    mode: InputMode,
+    keymap: KeymapResolver,
     hostname: String,
     should_quit: bool,
 }
@@ -93,10 +85,26 @@ impl TuiApp {
         pty_config.shell = shell;
         pty_config.rows = term_rows;
         pty_config.cols = cols;
-        // Advertise true-color support so shells and editors use it
-        pty_config
-            .env
-            .push(("TERM".to_string(), "xterm-256color".to_string()));
+        // Advertise true-color support so shells and editors use it. Prefer
+        // casterm's own embedded terminfo entry (extracted to a per-user
+        // cache dir, never installed system-wide); fall back to the
+        // universally-available xterm-256color identity if it's missing.
+        match crate::support::terminfo::install() {
+            Some(terminfo_dir) => {
+                pty_config.env.push((
+                    "TERM".to_string(),
+                    crate::support::terminfo::TERM_NAME.to_string(),
+                ));
+                pty_config
+                    .env
+                    .push(("TERMINFO".to_string(), terminfo_dir.display().to_string()));
+            }
+            None => {
+                pty_config
+                    .env
+                    .push(("TERM".to_string(), "xterm-256color".to_string()));
+            }
+        }
         pty_config
             .env
             .push(("COLORTERM".to_string(), "truecolor".to_string()));
@@ -131,6 +139,7 @@ impl TuiApp {
         });
 
         let hostname = get_hostname();
+        let keymap = KeymapResolver::new(&config.keybindings);
 
         Ok(Self {
             emulator,
@@ -142,7 +151,7 @@ impl TuiApp {
             session_name,
             window_index: 0,
             pane_index: 0,
-            mode: InputMode::Terminal,
+            keymap,
             hostname,
             should_quit: false,
         })
@@ -183,45 +192,44 @@ impl TuiApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
-        match self.mode {
-            InputMode::Prefix => self.handle_prefix_key(key),
-            InputMode::Terminal => self.handle_terminal_key(key),
+        // A sequence already in progress (or locked mode) means an
+        // unmatched key must be swallowed rather than sent to the PTY —
+        // mirrors tmux's "prefix eats the next key" behavior.
+        let mid_sequence = self.keymap.awaiting_input();
+        match self.keymap.resolve(key.modifiers, key.code) {
+            Resolved::Action(action) => self.dispatch_action(&action),
+            Resolved::Pending => Ok(()),
+            Resolved::NoMatch if mid_sequence => Ok(()),
+            Resolved::NoMatch => {
+                let bytes = encode_key(key);
+                if !bytes.is_empty() {
+                    self.write_to_pty(&bytes)?;
+                }
+                Ok(())
+            }
         }
     }
 
-    fn handle_terminal_key(&mut self, key: KeyEvent) -> Result<()> {
-        // Ctrl+Space activates prefix mode
-        if key.code == KeyCode::Char(' ') && key.modifiers == KeyModifiers::CONTROL {
-            self.mode = InputMode::Prefix;
-            return Ok(());
-        }
-        let bytes = encode_key(key);
-        if !bytes.is_empty() {
-            self.write_to_pty(&bytes)?;
-        }
-        Ok(())
-    }
-
-    fn handle_prefix_key(&mut self, key: KeyEvent) -> Result<()> {
-        // Return to normal mode after any prefix key
-        self.mode = InputMode::Terminal;
-        match key.code {
-            KeyCode::Char('n') => {
+    /// Interpret a resolved keybinding action name. Actions not yet backed
+    /// by a subsystem (multiplexer splits, copy mode, ...) are accepted but
+    /// currently no-ops — see PART 2/6 of the terminfo/keybinding plan.
+    fn dispatch_action(&mut self, action: &str) -> Result<()> {
+        match action {
+            "next-window" => {
                 self.window_index = self.window_index.wrapping_add(1);
+                Ok(())
             }
-            KeyCode::Char('p') => {
+            "prev-window" => {
                 self.window_index = self.window_index.saturating_sub(1);
+                Ok(())
             }
-            KeyCode::Char('d') | KeyCode::Char('q') => {
+            "detach" | "quit" => {
                 self.should_quit = true;
+                Ok(())
             }
-            // Send literal Ctrl+Space when prefix is pressed twice
-            KeyCode::Char(' ') => {
-                self.write_to_pty(&[0x00])?;
-            }
-            _ => {}
+            "send-literal-prefix" => self.write_to_pty(&[0x00]),
+            _ => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -327,21 +335,17 @@ impl<'a> Widget for TerminalGrid<'a> {
                 // Out-of-bounds terminal cells → render as blank with theme background
                 if row >= size.rows || col >= size.cols {
                     if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_symbol(" ")
-                            .set_fg(default_fg)
-                            .set_bg(default_bg);
+                        cell.set_symbol(" ").set_fg(default_fg).set_bg(default_bg);
                     }
                     continue;
                 }
 
                 let cell = grid.get(row, col).cloned().unwrap_or_default();
 
-                let is_cursor = cursor.row == row
-                    && cursor.col == col
-                    && self.emulator.cursor_visible();
+                let is_cursor =
+                    cursor.row == row && cursor.col == col && self.emulator.cursor_visible();
 
-                let mut fg =
-                    resolve_color(cell.attrs.fg, true, self.theme, default_fg, default_bg);
+                let mut fg = resolve_color(cell.attrs.fg, true, self.theme, default_fg, default_bg);
                 let mut bg =
                     resolve_color(cell.attrs.bg, false, self.theme, default_fg, default_bg);
 
@@ -415,6 +419,18 @@ fn resolve_color(
     }
 }
 
+/// Status-bar mode badge — derived each frame from the keymap resolver's
+/// state rather than owned by `TuiApp` directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusMode {
+    /// Keys go straight to the PTY.
+    Terminal,
+    /// A multi-chord keybinding sequence is in progress.
+    Waiting,
+    /// Locked mode: all keys except the unlock sequence are swallowed.
+    Locked,
+}
+
 /// Responsive status bar widget with 7 breakpoints
 struct StatusBar<'a> {
     theme: &'a ThemePalette,
@@ -422,7 +438,7 @@ struct StatusBar<'a> {
     window_index: usize,
     pane_index: usize,
     hostname: &'a str,
-    mode: InputMode,
+    mode: StatusMode,
     pane_title: &'a str,
     git_branch: Option<&'a str>,
 }
@@ -436,12 +452,16 @@ impl<'a> Widget for StatusBar<'a> {
 
         // Mode badge uses a distinctive accent color
         let mode_bg = match self.mode {
-            InputMode::Terminal => {
+            StatusMode::Terminal => {
                 let (r, g, b) = self.theme.ansi_color(4);
                 Color::Rgb(r, g, b)
             }
-            InputMode::Prefix => {
+            StatusMode::Waiting => {
                 let (r, g, b) = self.theme.ansi_color(3);
+                Color::Rgb(r, g, b)
+            }
+            StatusMode::Locked => {
+                let (r, g, b) = self.theme.ansi_color(1);
                 Color::Rgb(r, g, b)
             }
         };
@@ -449,8 +469,9 @@ impl<'a> Widget for StatusBar<'a> {
         let mode_fg = Color::Rgb(mfr, mfg, mfb);
 
         let mode_str = match self.mode {
-            InputMode::Terminal => "TERM",
-            InputMode::Prefix => "WAIT",
+            StatusMode::Terminal => "TERM",
+            StatusMode::Waiting => "WAIT",
+            StatusMode::Locked => "LOCK",
         };
 
         let width = area.width as usize;
@@ -459,9 +480,7 @@ impl<'a> Widget for StatusBar<'a> {
         // Fill row with bar background
         for x in area.x..area.x + area.width {
             if let Some(cell) = buf.cell_mut((x, area.y)) {
-                cell.set_symbol(" ")
-                    .set_fg(bar_fg)
-                    .set_bg(bar_bg);
+                cell.set_symbol(" ").set_fg(bar_fg).set_bg(bar_bg);
             }
         }
 
@@ -485,9 +504,7 @@ impl<'a> Widget for StatusBar<'a> {
         // Separator space after badge
         if x < area.x + area.width && !left.is_empty() {
             if let Some(cell) = buf.cell_mut((x, area.y)) {
-                cell.set_symbol(" ")
-                    .set_fg(bar_fg)
-                    .set_bg(bar_bg);
+                cell.set_symbol(" ").set_fg(bar_fg).set_bg(bar_bg);
             }
             x += 1;
         }
@@ -537,7 +554,10 @@ impl<'a> StatusBar<'a> {
             // tiny (60-79): session name truncated, no right segment
             w if w < 80 => {
                 let avail = w.saturating_sub(10);
-                (truncate(self.session_name, avail).to_string(), String::new())
+                (
+                    truncate(self.session_name, avail).to_string(),
+                    String::new(),
+                )
             }
 
             // small (80-119): session:win, HH:MM
@@ -608,9 +628,7 @@ fn truncate(s: &str, max_chars: usize) -> &str {
 
 fn get_hostname() -> String {
     std::env::var("HOSTNAME")
-        .or_else(|_| {
-            std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string())
-        })
+        .or_else(|_| std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()))
         .unwrap_or_else(|_| "localhost".to_string())
 }
 
@@ -661,10 +679,8 @@ fn detect_git_branch(dir: &Path) -> Option<String> {
 pub fn run(config: &Config, _command: &Option<String>, directory: Option<&Path>) -> Result<()> {
     tracing::info!("Starting TUI mode");
 
-    let theme_name = crate::config::ThemeCatalog::resolve_theme_name(
-        &config.theme.name,
-        config.theme.mode,
-    );
+    let theme_name =
+        crate::config::ThemeCatalog::resolve_theme_name(&config.theme.name, config.theme.mode);
     let theme = crate::assets::load_theme(&theme_name)
         .unwrap_or_else(|_| crate::config::ThemePalette::default());
 
@@ -672,8 +688,7 @@ pub fn run(config: &Config, _command: &Option<String>, directory: Option<&Path>)
     let mut out = stdout();
     execute!(out, EnterAlternateScreen).map_err(|e| CastermError::Tui(e.to_string()))?;
     let backend = CrosstermBackend::new(out);
-    let mut ratatui_term =
-        Terminal::new(backend).map_err(|e| CastermError::Tui(e.to_string()))?;
+    let mut ratatui_term = Terminal::new(backend).map_err(|e| CastermError::Tui(e.to_string()))?;
     ratatui_term
         .hide_cursor()
         .map_err(|e| CastermError::Tui(e.to_string()))?;
@@ -725,12 +740,7 @@ fn run_app<B: Backend>(
                         full_area.width,
                         full_area.height.saturating_sub(1),
                     );
-                    let sa = Rect::new(
-                        full_area.x,
-                        full_area.y + ta.height,
-                        full_area.width,
-                        1,
-                    );
+                    let sa = Rect::new(full_area.x, full_area.y + ta.height, full_area.width, 1);
                     (ta, Some(sa))
                 }
                 StatusBarPosition::Top => {
@@ -760,7 +770,13 @@ fn run_app<B: Backend>(
         let pane_title = app.emulator.title().to_string();
         let win_idx = app.window_index;
         let pane_idx = app.pane_index;
-        let mode = app.mode;
+        let mode = if app.keymap.is_locked() {
+            StatusMode::Locked
+        } else if app.keymap.awaiting_input() {
+            StatusMode::Waiting
+        } else {
+            StatusMode::Terminal
+        };
         let branch = git_branch.as_deref();
 
         ratatui_term
@@ -792,9 +808,7 @@ fn run_app<B: Backend>(
             .map_err(|e| CastermError::Tui(e.to_string()))?;
 
         // 16 ms poll ≈ 60 fps; draining the channel keeps latency low
-        if event::poll(Duration::from_millis(16))
-            .map_err(|e| CastermError::Tui(e.to_string()))?
-        {
+        if event::poll(Duration::from_millis(16)).map_err(|e| CastermError::Tui(e.to_string()))? {
             match event::read().map_err(|e| CastermError::Tui(e.to_string()))? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     app.handle_key(key)?;
