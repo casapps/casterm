@@ -17,8 +17,9 @@ pub fn run(config: &Config, command: &Option<String>, directory: Option<&Path>) 
         return Err(CastermError::NoDisplay);
     }
 
-    // TODO: Implement GUI with winit + wgpu
-    // For now, fall back to TUI
+    // GUI windowing lands in Phase 6; until then, fall back to TUI with
+    // default session naming/auto-restore (no `--session`/`--no-restore`
+    // equivalents exist at the GUI entry point yet).
     tracing::warn!("GUI not yet implemented, falling back to TUI");
-    super::tui::run(config, command, directory)
+    super::tui::run(config, command, directory, None, true)
 }

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::io::{stdout, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -27,9 +27,12 @@ use ratatui::{
 use crate::app::keybindings::{KeymapResolver, Resolved};
 use crate::app::multiplexer::{Layout, PaneId, SplitDirection, Window};
 use crate::app::pty::{Pty, PtyConfig};
+use crate::app::session::{Session, SessionId};
 use crate::app::terminal::{TermColor, Terminal as TerminalEmulator, TerminalSize};
 use crate::app::vte_processor::VteProcessor;
+use crate::app::App;
 use crate::config::{Config, StatusBarPosition, ThemePalette};
+use crate::state::{PaneState, WindowState};
 use crate::support::error::{CastermError, Result};
 
 /// Messages from a pane's PTY reader thread
@@ -47,11 +50,21 @@ struct PaneRuntime {
     pty_rx: mpsc::Receiver<PtyMsg>,
     emulator: TerminalEmulator,
     vte: VteProcessor,
+    /// The working directory this pane's shell was spawned in — tracked so
+    /// session save/restore (`state::PaneState.cwd`) can re-open a restored
+    /// pane in the same place. Defaults to the process's own cwd when the
+    /// caller doesn't request a specific one.
+    cwd: PathBuf,
 }
 
 /// Spawn a shell PTY plus its background reader thread and terminal
-/// emulator for one pane.
-fn spawn_pane_runtime(config: &Config, size: TerminalSize) -> Result<PaneRuntime> {
+/// emulator for one pane, starting the shell in `cwd` (falling back to the
+/// process's own working directory when `None`).
+fn spawn_pane_runtime(
+    config: &Config,
+    size: TerminalSize,
+    cwd: Option<PathBuf>,
+) -> Result<PaneRuntime> {
     let shell = config
         .shell
         .path
@@ -68,10 +81,15 @@ fn spawn_pane_runtime(config: &Config, size: TerminalSize) -> Result<PaneRuntime
             }
         });
 
+    let resolved_cwd = cwd
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
     let mut pty_config = PtyConfig {
         shell,
         rows: size.rows,
         cols: size.cols,
+        cwd,
         ..Default::default()
     };
     // Advertise true-color support so shells and editors use it. Prefer
@@ -135,12 +153,62 @@ fn spawn_pane_runtime(config: &Config, size: TerminalSize) -> Result<PaneRuntime
         pty_rx,
         emulator,
         vte,
+        cwd: resolved_cwd,
     })
+}
+
+/// Convert a live window + its running panes into a serializable
+/// `WindowState`, pairing each pane with the working directory its
+/// `PaneRuntime` was spawned in.
+fn window_to_state(window: &Window, panes: &HashMap<PaneId, PaneRuntime>) -> WindowState {
+    let ordered = window.pane_ids_sorted();
+    let index_of: HashMap<PaneId, usize> =
+        ordered.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+    let layout = window
+        .layout()
+        .map(|l| l.encode(&index_of))
+        .unwrap_or_default();
+    let panes = ordered
+        .iter()
+        .enumerate()
+        .map(|(index, id)| PaneState {
+            index,
+            cwd: panes.get(id).map(|p| p.cwd.clone()),
+            command: None,
+        })
+        .collect();
+    WindowState {
+        name: window.name().to_string(),
+        index: 0,
+        panes,
+        layout,
+    }
+}
+
+/// Reconstruct a blank `Window` (panes present, no live `PaneRuntime` yet)
+/// plus each restored pane's saved `cwd`, from a saved `WindowState`. Falls
+/// back to a single-pane layout if the saved layout string is malformed
+/// rather than producing a window with no layout at all.
+fn window_from_state(state: &WindowState) -> (Window, Vec<Option<PathBuf>>) {
+    let mut window = Window::new(state.name.clone());
+    let ids = window.restore_panes(state.panes.len());
+    let active = ids.first().copied();
+    match Layout::decode(&state.layout, &ids) {
+        Some(layout) => window.set_layout(layout, active),
+        None => {
+            if let Some(id) = active {
+                window.set_layout(Layout::Single(id), Some(id));
+            }
+        }
+    }
+    let cwds = state.panes.iter().map(|p| p.cwd.clone()).collect();
+    (window, cwds)
 }
 
 /// Full TUI application state
 struct TuiApp {
-    window: Window,
+    app: App,
+    session_id: SessionId,
     panes: HashMap<PaneId, PaneRuntime>,
     config: Config,
     theme: ThemePalette,
@@ -151,7 +219,20 @@ struct TuiApp {
 }
 
 impl TuiApp {
-    fn new(config: Config, theme: ThemePalette, session_name: String) -> Result<Self> {
+    /// Construct the TUI application, either starting a fresh session or —
+    /// when `restore` is true and `config.multiplexer.persist_sessions` is
+    /// on — resuming a saved one (`session_name` by exact match, else the
+    /// most-recently-attached saved session), re-spawning each restored
+    /// pane's shell in its saved `cwd`. `directory` seeds the first pane's
+    /// cwd for a fresh session (this is what the `-d`/`--directory` CLI flag
+    /// controls).
+    fn new(
+        config: Config,
+        theme: ThemePalette,
+        session_name: String,
+        directory: Option<&Path>,
+        restore: bool,
+    ) -> Result<Self> {
         let (cols, rows) = terminal_size().map_err(|e| CastermError::Tui(e.to_string()))?;
         // Reserve one row for the status bar when enabled
         let status_rows: u16 = if config.status_bar.enabled { 1 } else { 0 };
@@ -161,34 +242,160 @@ impl TuiApp {
             rows: term_rows,
         };
 
-        let mut window = Window::new("main");
-        window.set_name(session_name.clone());
-        let pane_id = window.create_pane();
-        let runtime = spawn_pane_runtime(&config, size)?;
+        let mut app = App::new(config.clone())?;
+
+        let saved_state = if restore && app.config().multiplexer.persist_sessions {
+            app.state()
+                .load_session(&session_name)
+                .cloned()
+                .or_else(|| {
+                    app.state()
+                        .list_sessions()
+                        .max_by_key(|s| s.last_attached)
+                        .cloned()
+                })
+        } else {
+            None
+        };
+
+        let (mut window, pane_cwds, restored_name) =
+            match saved_state.as_ref().and_then(|s| s.windows.first()) {
+                Some(window_state) => {
+                    let (window, cwds) = window_from_state(window_state);
+                    (window, cwds, saved_state.as_ref().map(|s| s.name.clone()))
+                }
+                None => (Window::new(session_name.clone()), Vec::new(), None),
+            };
+
+        let effective_name = restored_name.unwrap_or_else(|| session_name.clone());
+        window.set_name(effective_name.clone());
+
         let mut panes = HashMap::new();
-        panes.insert(pane_id, runtime);
+        if window.pane_count() == 0 {
+            // Fresh session: create the one starting pane, honoring
+            // `-d`/`--directory` for its initial working directory.
+            let pane_id = window.create_pane();
+            let cwd = directory.map(Path::to_path_buf);
+            let runtime = spawn_pane_runtime(&config, size, cwd)?;
+            panes.insert(pane_id, runtime);
+        } else {
+            // Restored session: re-spawn a shell for every saved pane in
+            // its saved cwd (falling back to `-d`/`--directory`, then the
+            // process's own cwd).
+            let ordered = window.pane_ids_sorted();
+            for (idx, id) in ordered.iter().enumerate() {
+                let cwd = pane_cwds
+                    .get(idx)
+                    .cloned()
+                    .flatten()
+                    .or_else(|| directory.map(Path::to_path_buf));
+                let runtime = spawn_pane_runtime(&config, size, cwd)?;
+                panes.insert(*id, runtime);
+            }
+        }
+
+        let session = Session::with_window(effective_name.clone(), window);
+        let session_id = app.sessions_mut().insert(session);
 
         let hostname = get_hostname();
         let keymap = KeymapResolver::new(&config.keybindings);
 
         Ok(Self {
-            window,
+            app,
+            session_id,
             panes,
             config,
             theme,
-            session_name,
+            session_name: effective_name,
             keymap,
             hostname,
             should_quit: false,
         })
     }
 
+    /// The live window backing this TUI session. Phase 2 scoped the
+    /// multiplexer to one window per session, and `TuiApp::new` always
+    /// leaves its just-inserted session as `self.app`'s active one, so
+    /// `active()`/`active_mut()` always resolve to it.
+    fn window(&self) -> &Window {
+        self.app
+            .sessions()
+            .active()
+            .expect("TuiApp's own session is always the active one")
+            .window()
+    }
+
+    fn window_mut(&mut self) -> &mut Window {
+        self.app
+            .sessions_mut()
+            .active_mut()
+            .expect("TuiApp's own session is always the active one")
+            .window_mut()
+    }
+
+    /// Serialize the live window/pane tree and persist it, when
+    /// `config.multiplexer.persist_sessions` is on. Called on clean
+    /// shutdown so the next launch can restore it. Also marks the in-memory
+    /// session `Detached` (a clean save, distinct from `Dead` when every
+    /// pane already exited on its own) and removes it from the app's
+    /// session table, since this `TuiApp`'s process is about to exit.
+    fn save_session(&mut self) -> Result<()> {
+        let already_dead = self
+            .app
+            .sessions()
+            .active()
+            .map(|s| s.state() == crate::app::session::SessionState::Dead)
+            .unwrap_or(false);
+
+        if !already_dead {
+            if let Some(session) = self.app.sessions_mut().active_mut() {
+                session.set_state(crate::app::session::SessionState::Detached);
+            }
+        }
+
+        // A `Dead` session (every pane already exited on its own) has
+        // nothing left worth resuming; only persist a clean/`Detached` one,
+        // and drop any stale on-disk copy from an earlier save this run.
+        let result = if already_dead {
+            let _ = self.app.state_mut().remove_session(&self.session_name);
+            Ok(())
+        } else if self.config.multiplexer.persist_sessions {
+            self.persist_session_state()
+        } else {
+            Ok(())
+        };
+
+        self.app.sessions_mut().remove(self.session_id);
+        result
+    }
+
+    fn persist_session_state(&mut self) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let name = self
+            .app
+            .sessions()
+            .active()
+            .map(|s| s.name().to_string())
+            .unwrap_or_else(|| self.session_name.clone());
+        let window_state = window_to_state(self.window(), &self.panes);
+        let state = crate::state::SessionState {
+            name,
+            created_at: now,
+            last_attached: now,
+            windows: vec![window_state],
+        };
+        self.app.state_mut().save_session(state)
+    }
+
     fn active_pane_id(&self) -> Option<PaneId> {
-        self.window.active_pane()
+        self.window().active_pane()
     }
 
     fn active_pane_mut(&mut self) -> Option<&mut PaneRuntime> {
-        let id = self.window.active_pane()?;
+        let id = self.window().active_pane()?;
         self.panes.get_mut(&id)
     }
 
@@ -201,8 +408,10 @@ impl TuiApp {
 
     /// Resize every pane to the rect the current layout tree assigns it.
     fn resize_panes(&mut self, term_area: Rect) {
-        for (id, rect) in layout_rects(self.window.layout(), term_area) {
-            let size = pane_inner_size(rect, self.window.pane_count());
+        let rects = layout_rects(self.window().layout(), term_area);
+        let pane_count = self.window().pane_count();
+        for (id, rect) in rects {
+            let size = pane_inner_size(rect, pane_count);
             if let Some(pane) = self.panes.get_mut(&id) {
                 if pane.emulator.size() != size && size.cols > 0 && size.rows > 0 {
                     pane.emulator.resize(size);
@@ -240,26 +449,40 @@ impl TuiApp {
 
         // Mirror each pane's OSC-reported terminal title into the window's
         // own pane model, so future window-list/status UI can read it back
-        // from `Window` without reaching into TUI-runtime internals.
+        // from `Window` without reaching into TUI-runtime internals. Titles
+        // are collected first, then applied, so the read pass (shared
+        // borrow of `self.panes`) never overlaps the write pass (exclusive
+        // borrow of `self.window_mut()`).
+        let mut title_updates: Vec<(PaneId, String)> = Vec::new();
         for (id, pane) in self.panes.iter() {
             let title = pane.emulator.title();
             let needs_update = self
-                .window
+                .window()
                 .get_pane(*id)
                 .is_some_and(|p| p.title() != title);
             if needs_update {
-                if let Some(model_pane) = self.window.get_pane_mut(*id) {
-                    model_pane.set_title(title);
-                }
+                title_updates.push((*id, title.to_string()));
+            }
+        }
+        for (id, title) in title_updates {
+            if let Some(model_pane) = self.window_mut().get_pane_mut(id) {
+                model_pane.set_title(title);
             }
         }
     }
 
     fn close_pane(&mut self, id: PaneId) {
         self.panes.remove(&id);
-        self.window.remove_pane(id);
-        if self.window.pane_count() == 0 {
+        self.window_mut().remove_pane(id);
+        if self.window().pane_count() == 0 {
             self.should_quit = true;
+            // Every pane exited on its own (as opposed to a clean quit-key
+            // shutdown, which `save_session` marks `Detached`) — there is
+            // nothing left to resume, so mark the session `Dead` rather
+            // than `Detached`.
+            if let Some(session) = self.app.sessions_mut().active_mut() {
+                session.set_state(crate::app::session::SessionState::Dead);
+            }
         }
     }
 
@@ -272,26 +495,26 @@ impl TuiApp {
             .get(&active)
             .map(|p| p.emulator.size())
             .unwrap_or(TerminalSize { cols: 80, rows: 24 });
-        if let Some(new_id) = self.window.split_pane(active, direction) {
-            let runtime = spawn_pane_runtime(&self.config, size)?;
+        if let Some(new_id) = self.window_mut().split_pane(active, direction) {
+            let runtime = spawn_pane_runtime(&self.config, size, None)?;
             self.panes.insert(new_id, runtime);
-            self.window.set_active_pane(new_id);
+            self.window_mut().set_active_pane(new_id);
         }
         Ok(())
     }
 
     fn focus_next_pane(&mut self) {
-        let mut ids: Vec<PaneId> = self.window.pane_ids().collect();
+        let mut ids: Vec<PaneId> = self.window().pane_ids().collect();
         if ids.len() < 2 {
             return;
         }
-        ids.sort_by_key(|id| id.to_string());
+        ids.sort_by_key(|id| id.value());
         let Some(current) = self.active_pane_id() else {
             return;
         };
         let idx = ids.iter().position(|&id| id == current).unwrap_or(0);
         let next = ids[(idx + 1) % ids.len()];
-        self.window.set_active_pane(next);
+        self.window_mut().set_active_pane(next);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
@@ -853,7 +1076,13 @@ fn detect_git_branch(dir: &Path) -> Option<String> {
 }
 
 /// Run the TUI terminal
-pub fn run(config: &Config, _command: &Option<String>, directory: Option<&Path>) -> Result<()> {
+pub fn run(
+    config: &Config,
+    _command: &Option<String>,
+    directory: Option<&Path>,
+    session: Option<&str>,
+    restore: bool,
+) -> Result<()> {
     tracing::info!("Starting TUI mode");
 
     let theme_name =
@@ -870,7 +1099,14 @@ pub fn run(config: &Config, _command: &Option<String>, directory: Option<&Path>)
         .hide_cursor()
         .map_err(|e| CastermError::Tui(e.to_string()))?;
 
-    let result = run_app(&mut ratatui_term, config.clone(), theme, directory);
+    let result = run_app(
+        &mut ratatui_term,
+        config.clone(),
+        theme,
+        directory,
+        session,
+        restore,
+    );
 
     disable_raw_mode().map_err(|e| CastermError::Tui(e.to_string()))?;
     execute!(ratatui_term.backend_mut(), LeaveAlternateScreen)
@@ -887,18 +1123,21 @@ fn run_app<B: Backend + std::io::Write>(
     config: Config,
     theme: ThemePalette,
     directory: Option<&Path>,
+    session: Option<&str>,
+    restore: bool,
 ) -> Result<()> {
-    let mut app = TuiApp::new(config, theme, "main".to_string())?;
+    let session_name = session.unwrap_or("main").to_string();
+    let mut app = TuiApp::new(config, theme, session_name, directory, restore)?;
 
     // Propagate the window's own name (and id, for multi-window
-    // disambiguation once Phase 3 wires session resurrection) into the
-    // host terminal emulator's title bar.
+    // disambiguation once real multi-window sessions land) into the host
+    // terminal emulator's title bar.
     let _ = execute!(
         ratatui_term.backend_mut(),
         SetTitle(format!(
             "casterm — {} [{}]",
-            app.window.name(),
-            app.window.id()
+            app.window().name(),
+            app.window().id()
         ))
     );
 
@@ -952,14 +1191,14 @@ fn run_app<B: Backend + std::io::Write>(
         // touch their PTY/emulator (checked inside resize_panes).
         app.resize_panes(term_area);
 
-        let rects = layout_rects(app.window.layout(), term_area);
+        let rects = layout_rects(app.window().layout(), term_area);
         let active_id = app.active_pane_id();
         let pane_title = active_id
             .and_then(|id| app.panes.get(&id))
             .map(|p| p.emulator.title().to_string())
             .unwrap_or_default();
-        let mut sorted_ids: Vec<PaneId> = app.window.pane_ids().collect();
-        sorted_ids.sort_by_key(|id| id.to_string());
+        let mut sorted_ids: Vec<PaneId> = app.window().pane_ids().collect();
+        sorted_ids.sort_by_key(|id| id.value());
         let pane_idx = active_id
             .and_then(|id| sorted_ids.iter().position(|&p| p == id))
             .unwrap_or(0);
@@ -1039,6 +1278,8 @@ fn run_app<B: Backend + std::io::Write>(
             break;
         }
     }
+
+    app.save_session()?;
 
     Ok(())
 }

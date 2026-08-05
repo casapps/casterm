@@ -30,6 +30,12 @@ impl PaneId {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
         Self(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
+
+    /// Numeric value backing this id, used for a true numeric ordering
+    /// (string-based sorting would put "10" before "9").
+    pub(crate) fn value(self) -> u64 {
+        self.0
+    }
 }
 
 impl std::fmt::Display for PaneId {
@@ -55,6 +61,88 @@ pub enum Layout {
         first: Box<Layout>,
         second: Box<Layout>,
     },
+}
+
+impl Layout {
+    /// Serialize into a compact string using pane *index* positions
+    /// (matching `Window::pane_ids_sorted`'s order) rather than the live
+    /// `PaneId`, since `PaneId`s are an in-process atomic counter and don't
+    /// survive a restart. Format: `S<idx>` for a leaf, `H<ratio>(a|b)` /
+    /// `V<ratio>(a|b)` for a horizontal/vertical split.
+    pub fn encode(&self, index_of: &HashMap<PaneId, usize>) -> String {
+        match self {
+            Layout::Single(id) => format!("S{}", index_of.get(id).copied().unwrap_or(0)),
+            Layout::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
+                let d = match direction {
+                    SplitDirection::Horizontal => 'H',
+                    SplitDirection::Vertical => 'V',
+                };
+                format!(
+                    "{d}{ratio}({}|{})",
+                    first.encode(index_of),
+                    second.encode(index_of)
+                )
+            }
+        }
+    }
+
+    /// Reconstruct a `Layout` from `encode`'s output, mapping saved pane
+    /// indices back onto freshly created `PaneId`s (`pane_ids[index]`).
+    /// Returns `None` on any malformed input rather than panicking, since
+    /// this parses a value read back from an on-disk session file.
+    pub fn decode(s: &str, pane_ids: &[PaneId]) -> Option<Layout> {
+        let (layout, rest) = Self::decode_inner(s, pane_ids)?;
+        if rest.is_empty() {
+            Some(layout)
+        } else {
+            None
+        }
+    }
+
+    fn decode_inner<'a>(s: &'a str, pane_ids: &[PaneId]) -> Option<(Layout, &'a str)> {
+        let tag = s.as_bytes().first().copied()?;
+        match tag {
+            b'S' => {
+                let digits_end = s[1..]
+                    .find(|c: char| !c.is_ascii_digit())
+                    .map(|i| i + 1)
+                    .unwrap_or(s.len());
+                let idx: usize = s[1..digits_end].parse().ok()?;
+                let pane_id = *pane_ids.get(idx)?;
+                Some((Layout::Single(pane_id), &s[digits_end..]))
+            }
+            b'H' | b'V' => {
+                let direction = if tag == b'H' {
+                    SplitDirection::Horizontal
+                } else {
+                    SplitDirection::Vertical
+                };
+                let rest = &s[1..];
+                let paren = rest.find('(')?;
+                let ratio: f32 = rest[..paren].parse().ok()?;
+                let rest = &rest[paren + 1..];
+                let (first, rest) = Self::decode_inner(rest, pane_ids)?;
+                let rest = rest.strip_prefix('|')?;
+                let (second, rest) = Self::decode_inner(rest, pane_ids)?;
+                let rest = rest.strip_prefix(')')?;
+                Some((
+                    Layout::Split {
+                        direction,
+                        ratio,
+                        first: Box::new(first),
+                        second: Box::new(second),
+                    },
+                    rest,
+                ))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// A window containing panes
@@ -193,9 +281,49 @@ impl Window {
         self.panes.keys().copied()
     }
 
+    /// Pane IDs in a stable, deterministic order. `PaneId`s are assigned by
+    /// an in-process atomic counter, so this order is only stable within a
+    /// single run — it exists so save/restore (`state::SessionState`) and
+    /// the TUI's pane-cycling can agree on "pane index N" without either
+    /// side needing to invent its own ordering.
+    pub fn pane_ids_sorted(&self) -> Vec<PaneId> {
+        let mut ids: Vec<PaneId> = self.panes.keys().copied().collect();
+        ids.sort_by_key(|id| id.value());
+        ids
+    }
+
     /// Number of panes currently in this window
     pub fn pane_count(&self) -> usize {
         self.panes.len()
+    }
+
+    /// Insert `count` fresh, blank panes without touching the layout tree.
+    /// `create_pane`/`split_pane` both mutate `self.layout` on every call,
+    /// which is wrong when restoring a saved session: the on-disk
+    /// `Layout::encode`d tree (decoded via `Layout::decode`) already
+    /// describes the arrangement, and `set_layout` installs it directly.
+    /// Returns the new pane IDs in creation order, matching the order
+    /// `state::WindowState.panes` was saved in.
+    pub fn restore_panes(&mut self, count: usize) -> Vec<PaneId> {
+        (0..count)
+            .map(|_| {
+                let pane = Pane::new();
+                let id = pane.id();
+                self.panes.insert(id, pane);
+                id
+            })
+            .collect()
+    }
+
+    /// Install a layout tree directly (used when restoring a saved
+    /// session). `active` becomes the active pane if it names a pane that
+    /// actually exists in this window; otherwise an arbitrary existing pane
+    /// (if any) is chosen.
+    pub fn set_layout(&mut self, layout: Layout, active: Option<PaneId>) {
+        self.layout = Some(layout);
+        self.active_pane = active
+            .filter(|id| self.panes.contains_key(id))
+            .or_else(|| self.panes.keys().next().copied());
     }
 
     /// Remove a pane, collapsing the layout tree around it. If the removed
@@ -362,5 +490,54 @@ mod tests {
         assert!(window.layout().is_none());
         assert_eq!(window.active_pane(), None);
         assert_eq!(window.pane_count(), 0);
+    }
+
+    #[test]
+    fn layout_encode_decode_round_trips_a_single_pane() {
+        let mut window = Window::new("main");
+        window.create_pane();
+        let ordered = window.pane_ids_sorted();
+        let index_of: HashMap<PaneId, usize> =
+            ordered.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+        let encoded = window.layout().unwrap().encode(&index_of);
+        let decoded = Layout::decode(&encoded, &ordered).expect("valid encoding decodes");
+        assert!(matches!(decoded, Layout::Single(id) if id == ordered[0]));
+    }
+
+    #[test]
+    fn layout_encode_decode_round_trips_a_split_tree() {
+        let mut window = Window::new("main");
+        let first = window.create_pane();
+        window.split_pane(first, SplitDirection::Vertical);
+        let ordered = window.pane_ids_sorted();
+        let index_of: HashMap<PaneId, usize> =
+            ordered.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+        let encoded = window.layout().unwrap().encode(&index_of);
+
+        // Decoding maps saved indices onto a *fresh* set of PaneIds (as a
+        // restart would produce), not the original ones.
+        let restored_ids: Vec<PaneId> = (0..ordered.len()).map(|_| Pane::new().id()).collect();
+        let decoded = Layout::decode(&encoded, &restored_ids).expect("valid encoding decodes");
+        match decoded {
+            Layout::Split {
+                direction,
+                first,
+                second,
+                ..
+            } => {
+                assert_eq!(direction, SplitDirection::Vertical);
+                assert!(matches!(*first, Layout::Single(id) if id == restored_ids[0]));
+                assert!(matches!(*second, Layout::Single(id) if id == restored_ids[1]));
+            }
+            other => panic!("expected a Split layout, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn layout_decode_rejects_malformed_input() {
+        let ids = [PaneId::new()];
+        assert!(Layout::decode("garbage", &ids).is_none());
+        assert!(Layout::decode("H0.5(S0|S1", &ids).is_none());
+        assert!(Layout::decode("S99", &ids).is_none());
     }
 }

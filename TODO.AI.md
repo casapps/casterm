@@ -38,6 +38,31 @@ conversation"). Remove each line only once fully implemented.
   `SessionManager` remain intentionally unconstructed dead code until
   Phase 3 wires them in.
 
+## Phase 3 — Session resurrection (implemented)
+
+- CRIU-style process checkpoint/restore (re-attach to a live running
+  process across a restart) — out of scope; restoring only re-spawns each
+  pane's shell in its saved `cwd`, it does not resume the saved `command`.
+- Structured state export (e.g. JSON/YAML dump of live session state for
+  external tooling) — not implemented.
+- Session locking (prevent two processes from concurrently mutating the
+  same on-disk session file) — not implemented; `StateManager` has no
+  file-lock/advisory-lock around `save_session`/`remove_session`.
+- `app::multiplexer::Pane.terminal` field and its `terminal()`/
+  `terminal_mut()`/`set_terminal()` accessors are unused dead code left
+  over from Phase 2 (not touched during Phase 3) — needs either genuine
+  wiring into the render/VTE path or deletion.
+- `state::HistoryState` (struct + `new`/`add`/`search`) is unused
+  scaffolding for a command-history subsystem that was never part of the
+  6-phase plan — needs either a real caller (e.g. TUI command palette) or
+  deletion.
+- `SessionManager`'s API surface was trimmed to only what single-session
+  MVP scope uses (`new`, `insert`, `active`, `active_mut`, `remove`).
+  `create`, `get`, `get_mut`, `find_by_name`, `list`, and `set_active` were
+  deleted as genuinely unused rather than kept behind `#[allow(dead_code)]`
+  — reintroduce them when multi-session list/switch commands are built
+  (e.g. a `casterm session list` CLI subcommand or a TUI session picker).
+
 ## Audit findings carried forward (not yet fixed)
 
 - `aws-lc-sys` pulled into the dependency tree via `rustls`'s default

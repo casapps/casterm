@@ -2,8 +2,6 @@
 
 use std::collections::HashMap;
 
-use crate::support::error::Result;
-
 /// Unique session identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId(u64);
@@ -30,24 +28,29 @@ pub enum SessionState {
     Dead,
 }
 
-/// A terminal session
+/// A terminal session.
+///
+/// Phase 2 scoped the multiplexer to a single window per session (MVP); this
+/// owns that `Window` directly rather than the earlier dangling
+/// `Vec<WindowId>` design, which had no registry anywhere mapping a
+/// `WindowId` back to a live `Window`. Real multi-window sessions are a
+/// follow-up once the multiplexer grows window collections.
 pub struct Session {
     id: SessionId,
     name: String,
     state: SessionState,
-    windows: Vec<super::multiplexer::WindowId>,
-    active_window: Option<super::multiplexer::WindowId>,
+    window: super::multiplexer::Window,
 }
 
 impl Session {
-    /// Create a new session
-    pub fn new(name: impl Into<String>) -> Self {
+    /// Create a session wrapping an already-constructed window (used when
+    /// restoring a saved session).
+    pub fn with_window(name: impl Into<String>, window: super::multiplexer::Window) -> Self {
         Self {
             id: SessionId::new(),
             name: name.into(),
             state: SessionState::Active,
-            windows: Vec::new(),
-            active_window: None,
+            window,
         }
     }
 
@@ -67,25 +70,22 @@ impl Session {
         self.state = state;
     }
 
-    pub fn windows(&self) -> &[super::multiplexer::WindowId] {
-        &self.windows
+    pub fn window(&self) -> &super::multiplexer::Window {
+        &self.window
     }
 
-    pub fn active_window(&self) -> Option<super::multiplexer::WindowId> {
-        self.active_window
+    pub fn window_mut(&mut self) -> &mut super::multiplexer::Window {
+        &mut self.window
     }
+}
 
-    pub fn add_window(&mut self, window_id: super::multiplexer::WindowId) {
-        self.windows.push(window_id);
-        if self.active_window.is_none() {
-            self.active_window = Some(window_id);
-        }
-    }
-
-    pub fn set_active_window(&mut self, window_id: super::multiplexer::WindowId) {
-        if self.windows.contains(&window_id) {
-            self.active_window = Some(window_id);
-        }
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("state", &self.state)
+            .finish_non_exhaustive()
     }
 }
 
@@ -103,9 +103,10 @@ impl SessionManager {
         }
     }
 
-    /// Create a new session
-    pub fn create(&mut self, name: impl Into<String>) -> SessionId {
-        let session = Session::new(name);
+    /// Insert an already-constructed session (e.g. one restored from
+    /// `state::SessionState` with its window/pane tree pre-populated, or a
+    /// fresh `Session::with_window(..)`).
+    pub fn insert(&mut self, session: Session) -> SessionId {
         let id = session.id();
         self.sessions.insert(id, session);
         if self.active_session.is_none() {
@@ -114,42 +115,15 @@ impl SessionManager {
         id
     }
 
-    /// Get a session by ID
-    pub fn get(&self, id: SessionId) -> Option<&Session> {
-        self.sessions.get(&id)
-    }
-
-    /// Get a mutable session by ID
-    pub fn get_mut(&mut self, id: SessionId) -> Option<&mut Session> {
-        self.sessions.get_mut(&id)
-    }
-
-    /// Get session by name
-    pub fn find_by_name(&self, name: &str) -> Option<&Session> {
-        self.sessions.values().find(|s| s.name() == name)
-    }
-
-    /// List all sessions
-    pub fn list(&self) -> impl Iterator<Item = &Session> {
-        self.sessions.values()
-    }
-
     /// Get the active session
     pub fn active(&self) -> Option<&Session> {
         self.active_session.and_then(|id| self.sessions.get(&id))
     }
 
-    /// Set the active session
-    pub fn set_active(&mut self, id: SessionId) -> Result<()> {
-        if self.sessions.contains_key(&id) {
-            self.active_session = Some(id);
-            Ok(())
-        } else {
-            Err(crate::support::error::CastermError::Session(format!(
-                "Session {} not found",
-                id
-            )))
-        }
+    /// Get the active session, mutably
+    pub fn active_mut(&mut self) -> Option<&mut Session> {
+        let id = self.active_session?;
+        self.sessions.get_mut(&id)
     }
 
     /// Remove a session

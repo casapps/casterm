@@ -79,6 +79,10 @@ struct Cli {
     /// Read-only attach
     #[arg(long)]
     readonly: bool,
+
+    /// Skip restoring a saved session; always start fresh
+    #[arg(long)]
+    no_restore: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::ValueEnum)]
@@ -152,7 +156,13 @@ fn main() -> Result<()> {
     // Run in detected mode
     match ui_mode {
         UiMode::Gui => ui::gui::run(&config, &cli.command, cli.directory.as_deref()),
-        UiMode::Tui => ui::tui::run(&config, &cli.command, cli.directory.as_deref()),
+        UiMode::Tui => ui::tui::run(
+            &config,
+            &cli.command,
+            cli.directory.as_deref(),
+            cli.session.as_deref(),
+            !cli.no_restore,
+        ),
         UiMode::Cli => ui::cli::run(&config, &cli.command, cli.directory.as_deref()),
     }
 }

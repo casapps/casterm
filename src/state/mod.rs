@@ -41,12 +41,20 @@ pub struct StateManager {
 }
 
 impl StateManager {
-    /// Create a new state manager
+    /// Create a new state manager backed by the platform's standard data
+    /// directory (`Platform::data_dir()/sessions`).
     pub fn new() -> Result<Self> {
         let state_dir = Platform::data_dir()
             .ok_or_else(|| CastermError::Config("Cannot determine data directory".into()))?
             .join("sessions");
+        Self::with_dir(state_dir)
+    }
 
+    /// Create a state manager backed by an arbitrary directory. Production
+    /// code should use `new()`; this exists so tests can exercise
+    /// save/load round-trips without touching the real platform data
+    /// directory.
+    pub fn with_dir(state_dir: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&state_dir)?;
 
         let mut manager = Self {
@@ -55,6 +63,7 @@ impl StateManager {
         };
 
         manager.load_all()?;
+        tracing::debug!(dir = %manager.state_dir().display(), "session state directory ready");
         Ok(manager)
     }
 
@@ -151,5 +160,92 @@ impl HistoryState {
             .iter()
             .rev()
             .filter(move |c| c.starts_with(prefix))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_state_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "casterm-state-test-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    #[test]
+    fn save_load_round_trip_preserves_window_pane_tree_and_cwd() {
+        let dir = temp_state_dir("round-trip");
+        let mut manager = StateManager::with_dir(dir.clone()).expect("state dir is creatable");
+
+        let state = SessionState {
+            name: "work".to_string(),
+            created_at: 1000,
+            last_attached: 2000,
+            windows: vec![WindowState {
+                name: "main".to_string(),
+                index: 0,
+                layout: "H0.5(S0|S1)".to_string(),
+                panes: vec![
+                    PaneState {
+                        index: 0,
+                        cwd: Some(PathBuf::from("/tmp/one")),
+                        command: None,
+                    },
+                    PaneState {
+                        index: 1,
+                        cwd: Some(PathBuf::from("/tmp/two")),
+                        command: Some("htop".to_string()),
+                    },
+                ],
+            }],
+        };
+
+        manager.save_session(state.clone()).expect("save succeeds");
+
+        // A fresh manager pointed at the same directory picks the session
+        // back up from disk, mirroring a process restart.
+        let reloaded = StateManager::with_dir(dir.clone()).expect("state dir reopens");
+        let loaded = reloaded
+            .load_session("work")
+            .expect("saved session round-trips");
+
+        assert_eq!(loaded.name, state.name);
+        assert_eq!(loaded.last_attached, state.last_attached);
+        assert_eq!(loaded.windows.len(), 1);
+        assert_eq!(loaded.windows[0].layout, "H0.5(S0|S1)");
+        assert_eq!(loaded.windows[0].panes.len(), 2);
+        assert_eq!(
+            loaded.windows[0].panes[0].cwd,
+            Some(PathBuf::from("/tmp/one"))
+        );
+        assert_eq!(loaded.windows[0].panes[1].command, Some("htop".to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_session_deletes_from_disk_and_memory() {
+        let dir = temp_state_dir("remove");
+        let mut manager = StateManager::with_dir(dir.clone()).expect("state dir is creatable");
+        manager
+            .save_session(SessionState {
+                name: "scratch".to_string(),
+                created_at: 0,
+                last_attached: 0,
+                windows: vec![],
+            })
+            .expect("save succeeds");
+
+        manager.remove_session("scratch").expect("remove succeeds");
+        assert!(manager.load_session("scratch").is_none());
+        assert!(!dir.join("scratch.json").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
