@@ -1,5 +1,6 @@
 //! TUI mode using ratatui + crossterm with full PTY-backed terminal emulation
 
+use std::collections::HashMap;
 use std::io::{stdout, Read};
 use std::path::Path;
 use std::sync::mpsc;
@@ -11,7 +12,7 @@ use crossterm::{
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, size as terminal_size, EnterAlternateScreen,
-        LeaveAlternateScreen,
+        LeaveAlternateScreen, SetTitle,
     },
 };
 use ratatui::{
@@ -24,29 +25,126 @@ use ratatui::{
 };
 
 use crate::app::keybindings::{KeymapResolver, Resolved};
+use crate::app::multiplexer::{Layout, PaneId, SplitDirection, Window};
 use crate::app::pty::{Pty, PtyConfig};
 use crate::app::terminal::{TermColor, Terminal as TerminalEmulator, TerminalSize};
 use crate::app::vte_processor::VteProcessor;
 use crate::config::{Config, StatusBarPosition, ThemePalette};
 use crate::support::error::{CastermError, Result};
 
-/// Messages from the PTY reader thread
+/// Messages from a pane's PTY reader thread
 enum PtyMsg {
     Data(Vec<u8>),
     Exit,
 }
 
-/// Full TUI application state
-struct TuiApp {
-    emulator: TerminalEmulator,
-    vte: VteProcessor,
+/// The live state backing a single pane: its PTY, background reader
+/// channel, and its own terminal emulator/VTE parser. Each pane runs an
+/// independent shell — splitting a window multiplies this, it doesn't
+/// share one PTY across panes.
+struct PaneRuntime {
     pty: Pty,
     pty_rx: mpsc::Receiver<PtyMsg>,
+    emulator: TerminalEmulator,
+    vte: VteProcessor,
+}
+
+/// Spawn a shell PTY plus its background reader thread and terminal
+/// emulator for one pane.
+fn spawn_pane_runtime(config: &Config, size: TerminalSize) -> Result<PaneRuntime> {
+    let shell = config
+        .shell
+        .path
+        .clone()
+        .or_else(crate::config::detect_shell)
+        .unwrap_or_else(|| {
+            #[cfg(windows)]
+            {
+                std::path::PathBuf::from("cmd.exe")
+            }
+            #[cfg(not(windows))]
+            {
+                std::path::PathBuf::from("/bin/sh")
+            }
+        });
+
+    let mut pty_config = PtyConfig {
+        shell,
+        rows: size.rows,
+        cols: size.cols,
+        ..Default::default()
+    };
+    // Advertise true-color support so shells and editors use it. Prefer
+    // casterm's own embedded terminfo entry (extracted to a per-user
+    // cache dir, never installed system-wide); fall back to the
+    // universally-available xterm-256color identity if it's missing.
+    match crate::support::terminfo::install() {
+        Some(terminfo_dir) => {
+            pty_config.env.push((
+                "TERM".to_string(),
+                crate::support::terminfo::TERM_NAME.to_string(),
+            ));
+            pty_config
+                .env
+                .push(("TERMINFO".to_string(), terminfo_dir.display().to_string()));
+        }
+        None => {
+            pty_config
+                .env
+                .push(("TERM".to_string(), "xterm-256color".to_string()));
+        }
+    }
+    pty_config
+        .env
+        .push(("COLORTERM".to_string(), "truecolor".to_string()));
+
+    let mut pty = Pty::spawn(pty_config)?;
+
+    // Move reader into a background thread; send bytes back via channel
+    let (tx, pty_rx) = mpsc::channel::<PtyMsg>();
+    let mut reader = pty
+        .take_reader()
+        .ok_or_else(|| CastermError::Pty("PTY reader not available".to_string()))?;
+
+    thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => {
+                    let _ = tx.send(PtyMsg::Exit);
+                    break;
+                }
+                Ok(n) => {
+                    if tx.send(PtyMsg::Data(buf[..n].to_vec())).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    let _ = tx.send(PtyMsg::Exit);
+                    break;
+                }
+            }
+        }
+    });
+
+    let emulator = TerminalEmulator::new(size);
+    let vte = VteProcessor::new();
+
+    Ok(PaneRuntime {
+        pty,
+        pty_rx,
+        emulator,
+        vte,
+    })
+}
+
+/// Full TUI application state
+struct TuiApp {
+    window: Window,
+    panes: HashMap<PaneId, PaneRuntime>,
     config: Config,
     theme: ThemePalette,
     session_name: String,
-    window_index: usize,
-    pane_index: usize,
     keymap: KeymapResolver,
     hostname: String,
     should_quit: bool,
@@ -58,137 +156,142 @@ impl TuiApp {
         // Reserve one row for the status bar when enabled
         let status_rows: u16 = if config.status_bar.enabled { 1 } else { 0 };
         let term_rows = rows.saturating_sub(status_rows);
-
-        let emulator = TerminalEmulator::new(TerminalSize {
+        let size = TerminalSize {
             cols,
             rows: term_rows,
-        });
-        let vte = VteProcessor::new();
+        };
 
-        let shell = config
-            .shell
-            .path
-            .clone()
-            .or_else(crate::config::detect_shell)
-            .unwrap_or_else(|| {
-                #[cfg(windows)]
-                {
-                    std::path::PathBuf::from("cmd.exe")
-                }
-                #[cfg(not(windows))]
-                {
-                    std::path::PathBuf::from("/bin/sh")
-                }
-            });
-
-        let mut pty_config = PtyConfig::default();
-        pty_config.shell = shell;
-        pty_config.rows = term_rows;
-        pty_config.cols = cols;
-        // Advertise true-color support so shells and editors use it. Prefer
-        // casterm's own embedded terminfo entry (extracted to a per-user
-        // cache dir, never installed system-wide); fall back to the
-        // universally-available xterm-256color identity if it's missing.
-        match crate::support::terminfo::install() {
-            Some(terminfo_dir) => {
-                pty_config.env.push((
-                    "TERM".to_string(),
-                    crate::support::terminfo::TERM_NAME.to_string(),
-                ));
-                pty_config
-                    .env
-                    .push(("TERMINFO".to_string(), terminfo_dir.display().to_string()));
-            }
-            None => {
-                pty_config
-                    .env
-                    .push(("TERM".to_string(), "xterm-256color".to_string()));
-            }
-        }
-        pty_config
-            .env
-            .push(("COLORTERM".to_string(), "truecolor".to_string()));
-
-        let mut pty = Pty::spawn(pty_config)?;
-
-        // Move reader into a background thread; send bytes back via channel
-        let (tx, pty_rx) = mpsc::channel::<PtyMsg>();
-        let mut reader = pty
-            .take_reader()
-            .ok_or_else(|| CastermError::Pty("PTY reader not available".to_string()))?;
-
-        thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) => {
-                        let _ = tx.send(PtyMsg::Exit);
-                        break;
-                    }
-                    Ok(n) => {
-                        if tx.send(PtyMsg::Data(buf[..n].to_vec())).is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => {
-                        let _ = tx.send(PtyMsg::Exit);
-                        break;
-                    }
-                }
-            }
-        });
+        let mut window = Window::new("main");
+        window.set_name(session_name.clone());
+        let pane_id = window.create_pane();
+        let runtime = spawn_pane_runtime(&config, size)?;
+        let mut panes = HashMap::new();
+        panes.insert(pane_id, runtime);
 
         let hostname = get_hostname();
         let keymap = KeymapResolver::new(&config.keybindings);
 
         Ok(Self {
-            emulator,
-            vte,
-            pty,
-            pty_rx,
+            window,
+            panes,
             config,
             theme,
             session_name,
-            window_index: 0,
-            pane_index: 0,
             keymap,
             hostname,
             should_quit: false,
         })
     }
 
+    fn active_pane_id(&self) -> Option<PaneId> {
+        self.window.active_pane()
+    }
+
+    fn active_pane_mut(&mut self) -> Option<&mut PaneRuntime> {
+        let id = self.window.active_pane()?;
+        self.panes.get_mut(&id)
+    }
+
     fn write_to_pty(&mut self, data: &[u8]) -> Result<()> {
-        self.pty.write(data).map(|_| ())
+        if let Some(pane) = self.active_pane_mut() {
+            pane.pty.write(data).map(|_| ())?;
+        }
+        Ok(())
     }
 
-    fn resize(&mut self, cols: u16, full_rows: u16) {
-        let status_rows: u16 = if self.config.status_bar.enabled { 1 } else { 0 };
-        let term_rows = full_rows.saturating_sub(status_rows);
-        self.emulator.resize(TerminalSize {
-            cols,
-            rows: term_rows,
-        });
-        let _ = self.pty.resize(term_rows, cols);
-    }
-
-    /// Drain all pending PTY data into the emulator
-    fn drain_pty(&mut self) {
-        loop {
-            match self.pty_rx.try_recv() {
-                Ok(PtyMsg::Data(data)) => {
-                    self.vte.process(&mut self.emulator, &data);
-                }
-                Ok(PtyMsg::Exit) => {
-                    self.should_quit = true;
-                    break;
-                }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.should_quit = true;
-                    break;
+    /// Resize every pane to the rect the current layout tree assigns it.
+    fn resize_panes(&mut self, term_area: Rect) {
+        for (id, rect) in layout_rects(self.window.layout(), term_area) {
+            let size = pane_inner_size(rect, self.window.pane_count());
+            if let Some(pane) = self.panes.get_mut(&id) {
+                if pane.emulator.size() != size && size.cols > 0 && size.rows > 0 {
+                    pane.emulator.resize(size);
+                    let _ = pane.pty.resize(size.rows, size.cols);
                 }
             }
         }
+    }
+
+    /// Drain all pending PTY data into each pane's emulator; panes whose
+    /// shell exited are removed from the window.
+    fn drain_pty(&mut self) {
+        let mut exited = Vec::new();
+        for (id, pane) in self.panes.iter_mut() {
+            loop {
+                match pane.pty_rx.try_recv() {
+                    Ok(PtyMsg::Data(data)) => {
+                        pane.vte.process(&mut pane.emulator, &data);
+                    }
+                    Ok(PtyMsg::Exit) => {
+                        exited.push(*id);
+                        break;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        exited.push(*id);
+                        break;
+                    }
+                }
+            }
+        }
+        for id in exited {
+            self.close_pane(id);
+        }
+
+        // Mirror each pane's OSC-reported terminal title into the window's
+        // own pane model, so future window-list/status UI can read it back
+        // from `Window` without reaching into TUI-runtime internals.
+        for (id, pane) in self.panes.iter() {
+            let title = pane.emulator.title();
+            let needs_update = self
+                .window
+                .get_pane(*id)
+                .is_some_and(|p| p.title() != title);
+            if needs_update {
+                if let Some(model_pane) = self.window.get_pane_mut(*id) {
+                    model_pane.set_title(title);
+                }
+            }
+        }
+    }
+
+    fn close_pane(&mut self, id: PaneId) {
+        self.panes.remove(&id);
+        self.window.remove_pane(id);
+        if self.window.pane_count() == 0 {
+            self.should_quit = true;
+        }
+    }
+
+    fn split(&mut self, direction: SplitDirection) -> Result<()> {
+        let Some(active) = self.active_pane_id() else {
+            return Ok(());
+        };
+        let size = self
+            .panes
+            .get(&active)
+            .map(|p| p.emulator.size())
+            .unwrap_or(TerminalSize { cols: 80, rows: 24 });
+        if let Some(new_id) = self.window.split_pane(active, direction) {
+            let runtime = spawn_pane_runtime(&self.config, size)?;
+            self.panes.insert(new_id, runtime);
+            self.window.set_active_pane(new_id);
+        }
+        Ok(())
+    }
+
+    fn focus_next_pane(&mut self) {
+        let mut ids: Vec<PaneId> = self.window.pane_ids().collect();
+        if ids.len() < 2 {
+            return;
+        }
+        ids.sort_by_key(|id| id.to_string());
+        let Some(current) = self.active_pane_id() else {
+            return;
+        };
+        let idx = ids.iter().position(|&id| id == current).unwrap_or(0);
+        let next = ids[(idx + 1) % ids.len()];
+        self.window.set_active_pane(next);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
@@ -210,17 +313,21 @@ impl TuiApp {
         }
     }
 
-    /// Interpret a resolved keybinding action name. Actions not yet backed
-    /// by a subsystem (multiplexer splits, copy mode, ...) are accepted but
-    /// currently no-ops — see PART 2/6 of the terminfo/keybinding plan.
+    /// Interpret a resolved keybinding action name. Actions not backed by a
+    /// subsystem yet (copy mode, multiple windows, ...) are accepted but
+    /// currently no-ops — see PART 3+/6 of the stub-subsystem plan.
     fn dispatch_action(&mut self, action: &str) -> Result<()> {
         match action {
-            "next-window" => {
-                self.window_index = self.window_index.wrapping_add(1);
+            "split-horizontal" => self.split(SplitDirection::Horizontal),
+            "split-vertical" => self.split(SplitDirection::Vertical),
+            "close-pane" => {
+                if let Some(id) = self.active_pane_id() {
+                    self.close_pane(id);
+                }
                 Ok(())
             }
-            "prev-window" => {
-                self.window_index = self.window_index.saturating_sub(1);
+            "focus-next-pane" => {
+                self.focus_next_pane();
                 Ok(())
             }
             "detach" | "quit" => {
@@ -229,6 +336,78 @@ impl TuiApp {
             }
             "send-literal-prefix" => self.write_to_pty(&[0x00]),
             _ => Ok(()),
+        }
+    }
+}
+
+/// Recursively resolve a pane layout tree into `(PaneId, Rect)` leaves.
+/// `SplitDirection::Horizontal` arranges panes side by side (splitting
+/// width); `Vertical` stacks them top/bottom (splitting height) — matching
+/// tmux's `split-window -h`/`-v` convention.
+fn layout_rects(layout: Option<&Layout>, area: Rect) -> Vec<(PaneId, Rect)> {
+    let mut out = Vec::new();
+    if let Some(layout) = layout {
+        collect_layout_rects(layout, area, &mut out);
+    }
+    out
+}
+
+fn collect_layout_rects(layout: &Layout, area: Rect, out: &mut Vec<(PaneId, Rect)>) {
+    match layout {
+        Layout::Single(id) => out.push((*id, area)),
+        Layout::Split {
+            direction,
+            ratio,
+            first,
+            second,
+        } => {
+            let (first_area, second_area) = split_rect(area, *direction, *ratio);
+            collect_layout_rects(first, first_area, out);
+            collect_layout_rects(second, second_area, out);
+        }
+    }
+}
+
+fn split_rect(area: Rect, direction: SplitDirection, ratio: f32) -> (Rect, Rect) {
+    match direction {
+        SplitDirection::Horizontal => {
+            let first_w = ((area.width as f32) * ratio).round() as u16;
+            let first = Rect::new(area.x, area.y, first_w, area.height);
+            let second = Rect::new(
+                area.x + first_w,
+                area.y,
+                area.width.saturating_sub(first_w),
+                area.height,
+            );
+            (first, second)
+        }
+        SplitDirection::Vertical => {
+            let first_h = ((area.height as f32) * ratio).round() as u16;
+            let first = Rect::new(area.x, area.y, area.width, first_h);
+            let second = Rect::new(
+                area.x,
+                area.y + first_h,
+                area.width,
+                area.height.saturating_sub(first_h),
+            );
+            (first, second)
+        }
+    }
+}
+
+/// The terminal size a pane should render at, given its screen rect. With
+/// more than one pane a 1-cell border is drawn around each, so the usable
+/// interior is 2 cells smaller on each axis.
+fn pane_inner_size(rect: Rect, pane_count: usize) -> TerminalSize {
+    if pane_count > 1 {
+        TerminalSize {
+            cols: rect.width.saturating_sub(2),
+            rows: rect.height.saturating_sub(2),
+        }
+    } else {
+        TerminalSize {
+            cols: rect.width,
+            rows: rect.height,
         }
     }
 }
@@ -242,7 +421,7 @@ fn encode_key(key: KeyEvent) -> Vec<u8> {
         KeyCode::Char(c) => {
             if ctrl {
                 let byte = (c as u8).to_ascii_lowercase();
-                if (b'a'..=b'z').contains(&byte) {
+                if byte.is_ascii_lowercase() {
                     vec![byte - b'a' + 1]
                 } else {
                     match c {
@@ -528,8 +707,7 @@ impl<'a> Widget for StatusBar<'a> {
             let right_display = format!(" {} ", right);
             let right_len = right_display.chars().count() as u16;
             let right_start = (area.x + area.width).saturating_sub(right_len);
-            let mut rx = right_start;
-            for c in right_display.chars() {
+            for (rx, c) in (right_start..).zip(right_display.chars()) {
                 if rx >= area.x + area.width || rx < x {
                     break;
                 }
@@ -539,7 +717,6 @@ impl<'a> Widget for StatusBar<'a> {
                         .set_fg(bar_fg)
                         .set_bg(bar_bg);
                 }
-                rx += 1;
             }
         }
     }
@@ -705,13 +882,25 @@ pub fn run(config: &Config, _command: &Option<String>, directory: Option<&Path>)
     result
 }
 
-fn run_app<B: Backend>(
+fn run_app<B: Backend + std::io::Write>(
     ratatui_term: &mut Terminal<B>,
     config: Config,
     theme: ThemePalette,
     directory: Option<&Path>,
 ) -> Result<()> {
     let mut app = TuiApp::new(config, theme, "main".to_string())?;
+
+    // Propagate the window's own name (and id, for multi-window
+    // disambiguation once Phase 3 wires session resurrection) into the
+    // host terminal emulator's title bar.
+    let _ = execute!(
+        ratatui_term.backend_mut(),
+        SetTitle(format!(
+            "casterm — {} [{}]",
+            app.window.name(),
+            app.window.id()
+        ))
+    );
 
     let cwd = directory
         .map(Path::to_path_buf)
@@ -758,18 +947,22 @@ fn run_app<B: Backend>(
             (full_area, None)
         };
 
-        // Keep emulator size in sync with the terminal area
-        let desired = TerminalSize {
-            cols: term_area.width,
-            rows: term_area.height,
-        };
-        if app.emulator.size() != desired {
-            app.resize(full_area.width, full_area.height);
-        }
+        // Resize every pane to whatever rect the current split layout
+        // assigns it; only the panes whose rect actually changed size
+        // touch their PTY/emulator (checked inside resize_panes).
+        app.resize_panes(term_area);
 
-        let pane_title = app.emulator.title().to_string();
-        let win_idx = app.window_index;
-        let pane_idx = app.pane_index;
+        let rects = layout_rects(app.window.layout(), term_area);
+        let active_id = app.active_pane_id();
+        let pane_title = active_id
+            .and_then(|id| app.panes.get(&id))
+            .map(|p| p.emulator.title().to_string())
+            .unwrap_or_default();
+        let mut sorted_ids: Vec<PaneId> = app.window.pane_ids().collect();
+        sorted_ids.sort_by_key(|id| id.to_string());
+        let pane_idx = active_id
+            .and_then(|id| sorted_ids.iter().position(|&p| p == id))
+            .unwrap_or(0);
         let mode = if app.keymap.is_locked() {
             StatusMode::Locked
         } else if app.keymap.awaiting_input() {
@@ -778,23 +971,46 @@ fn run_app<B: Backend>(
             StatusMode::Terminal
         };
         let branch = git_branch.as_deref();
+        let multi_pane = rects.len() > 1;
 
         ratatui_term
             .draw(|frame| {
-                frame.render_widget(
-                    TerminalGrid {
-                        emulator: &app.emulator,
-                        theme: &app.theme,
-                    },
-                    term_area,
-                );
+                for (id, rect) in &rects {
+                    let Some(pane) = app.panes.get(id) else {
+                        continue;
+                    };
+                    let is_active = Some(*id) == active_id;
+                    let inner = if multi_pane {
+                        let border_color = if is_active {
+                            let (r, g, b) = app.theme.ansi_color(4);
+                            Color::Rgb(r, g, b)
+                        } else {
+                            let (r, g, b) = app.theme.ansi_color(8);
+                            Color::Rgb(r, g, b)
+                        };
+                        let block = ratatui::widgets::Block::bordered()
+                            .border_style(Style::default().fg(border_color));
+                        let inner = block.inner(*rect);
+                        frame.render_widget(block, *rect);
+                        inner
+                    } else {
+                        *rect
+                    };
+                    frame.render_widget(
+                        TerminalGrid {
+                            emulator: &pane.emulator,
+                            theme: &app.theme,
+                        },
+                        inner,
+                    );
+                }
 
                 if let Some(sa) = status_area {
                     frame.render_widget(
                         StatusBar {
                             theme: &app.theme,
                             session_name: &app.session_name,
-                            window_index: win_idx,
+                            window_index: 0,
                             pane_index: pane_idx,
                             hostname: &app.hostname,
                             mode,
@@ -813,9 +1029,8 @@ fn run_app<B: Backend>(
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     app.handle_key(key)?;
                 }
-                Event::Resize(cols, rows) => {
-                    app.resize(cols, rows);
-                }
+                // Resize is picked up next iteration via ratatui_term.size()
+                // + resize_panes(), no separate handling needed here.
                 _ => {}
             }
         }

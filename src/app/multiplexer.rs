@@ -97,19 +97,23 @@ impl Window {
         self.active_pane
     }
 
-    /// Create a new pane in this window
+    /// Create a new pane in this window. If a layout already exists, the
+    /// new pane is split in next to the currently active pane (defaulting
+    /// to a horizontal split) rather than being silently dropped from the
+    /// layout tree.
     pub fn create_pane(&mut self) -> PaneId {
         let pane = Pane::new();
         let id = pane.id();
         self.panes.insert(id, pane);
 
-        // Update layout
-        match &self.layout {
+        match self.layout.take() {
             None => {
                 self.layout = Some(Layout::Single(id));
             }
-            Some(_) => {
-                // TODO: Split existing layout
+            Some(layout) => {
+                let target = self.active_pane.unwrap_or(id);
+                self.layout =
+                    Some(self.insert_split(layout, target, id, SplitDirection::Horizontal));
             }
         }
 
@@ -188,6 +192,50 @@ impl Window {
     pub fn pane_ids(&self) -> impl Iterator<Item = PaneId> + '_ {
         self.panes.keys().copied()
     }
+
+    /// Number of panes currently in this window
+    pub fn pane_count(&self) -> usize {
+        self.panes.len()
+    }
+
+    /// Remove a pane, collapsing the layout tree around it. If the removed
+    /// pane was active, an arbitrary remaining pane (if any) becomes active.
+    pub fn remove_pane(&mut self, id: PaneId) {
+        self.panes.remove(&id);
+        if let Some(layout) = self.layout.take() {
+            self.layout = Self::remove_from_layout(layout, id);
+        }
+        if self.active_pane == Some(id) {
+            self.active_pane = self.panes.keys().next().copied();
+        }
+    }
+
+    fn remove_from_layout(layout: Layout, target: PaneId) -> Option<Layout> {
+        match layout {
+            Layout::Single(id) if id == target => None,
+            Layout::Single(id) => Some(Layout::Single(id)),
+            Layout::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
+                let first = Self::remove_from_layout(*first, target);
+                let second = Self::remove_from_layout(*second, target);
+                match (first, second) {
+                    (Some(f), Some(s)) => Some(Layout::Split {
+                        direction,
+                        ratio,
+                        first: Box::new(f),
+                        second: Box::new(s),
+                    }),
+                    (Some(f), None) => Some(f),
+                    (None, Some(s)) => Some(s),
+                    (None, None) => None,
+                }
+            }
+        }
+    }
 }
 
 /// A single pane within a window
@@ -234,5 +282,85 @@ impl Pane {
 impl Default for Pane {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_create_pane_produces_single_layout() {
+        let mut window = Window::new("main");
+        let id = window.create_pane();
+        assert!(matches!(window.layout(), Some(Layout::Single(pane)) if *pane == id));
+        assert_eq!(window.active_pane(), Some(id));
+        assert_eq!(window.pane_count(), 1);
+    }
+
+    #[test]
+    fn second_create_pane_splits_existing_layout_instead_of_dropping_it() {
+        let mut window = Window::new("main");
+        let first = window.create_pane();
+        let second = window.create_pane();
+        assert_eq!(window.pane_count(), 2);
+        match window.layout() {
+            Some(Layout::Split {
+                first: f,
+                second: s,
+                ..
+            }) => {
+                assert!(matches!(**f, Layout::Single(id) if id == first));
+                assert!(matches!(**s, Layout::Single(id) if id == second));
+            }
+            other => panic!("expected a Split layout, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn split_pane_creates_split_layout_with_requested_direction() {
+        let mut window = Window::new("main");
+        let first = window.create_pane();
+        let second = window
+            .split_pane(first, SplitDirection::Vertical)
+            .expect("split against an existing pane succeeds");
+        match window.layout() {
+            Some(Layout::Split { direction, .. }) => {
+                assert_eq!(*direction, SplitDirection::Vertical);
+            }
+            other => panic!("expected a Split layout, got {other:?}"),
+        }
+        assert_eq!(window.pane_count(), 2);
+        assert!(window.get_pane(second).is_some());
+    }
+
+    #[test]
+    fn remove_pane_collapses_layout_to_surviving_sibling() {
+        let mut window = Window::new("main");
+        let first = window.create_pane();
+        let second = window.create_pane();
+        window.remove_pane(second);
+        assert!(matches!(window.layout(), Some(Layout::Single(id)) if *id == first));
+        assert_eq!(window.pane_count(), 1);
+    }
+
+    #[test]
+    fn removing_active_pane_promotes_a_remaining_pane_to_active() {
+        let mut window = Window::new("main");
+        let first = window.create_pane();
+        let second = window.create_pane();
+        window.set_active_pane(second);
+        window.remove_pane(second);
+        assert_eq!(window.active_pane(), Some(first));
+    }
+
+    #[test]
+    fn removing_last_pane_leaves_an_empty_layout() {
+        let mut window = Window::new("main");
+        let id = window.create_pane();
+        window.remove_pane(id);
+        assert!(window.layout().is_none());
+        assert_eq!(window.active_pane(), None);
+        assert_eq!(window.pane_count(), 0);
     }
 }

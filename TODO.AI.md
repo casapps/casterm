@@ -11,6 +11,33 @@ conversation"). Remove each line only once fully implemented.
 - Human-readable modifier naming (e.g. "Ctrl+Space") in a future
   config-editor UI, distinct from the internal `C-Space`-style spec syntax.
 
+## Phase 2 — Multiplexer wiring (implemented)
+
+- Floating/stacked pane layouts (beyond binary horizontal/vertical splits).
+- Pane zoom (temporarily maximize one pane, restoring the split layout on
+  unzoom).
+- Broadcast mode (mirror keystrokes to every pane in a window at once).
+- Break/join panes (move a pane out into its own window, or merge two
+  windows' panes back together).
+- Tree-mode session browser (visual window/pane tree navigator).
+- DBus remote control of the multiplexer (per IDEA.md's stretch scope).
+- Saved/loadable layout files (name and restore a specific split
+  arrangement independent of session resurrection).
+- `next-window` / `prev-window` keybinding actions currently no-op: Phase 2
+  is single-window-per-session (MVP scope per the approved plan); real
+  multi-window support inside one session is deferred to whichever future
+  phase adds `Window` collections instead of a single `Window` per `TuiApp`.
+- Architecture note (not a defect, logged for traceability): the approved
+  plan's Phase 2 wording said "wire `App` to own a `Window`/multiplexer per
+  active session ... give `Session` a real `Window`." The actual
+  implementation wires `Window` directly onto `TuiApp` in `ui/tui/mod.rs`
+  instead, since `crate::app::App`/`crate::app::session::Session` have no
+  other live callers yet and Phase 3 (session resurrection) will need to
+  restructure this ownership anyway once `StateManager` save/restore needs
+  a `Session` to own the `Window` for serialization. `App`/`Session`/
+  `SessionManager` remain intentionally unconstructed dead code until
+  Phase 3 wires them in.
+
 ## Audit findings carried forward (not yet fixed)
 
 - `aws-lc-sys` pulled into the dependency tree via `rustls`'s default
