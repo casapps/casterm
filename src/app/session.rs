@@ -145,9 +145,10 @@ impl SessionManager {
             self.active_session = Some(id);
             Ok(())
         } else {
-            Err(crate::support::error::CastermError::Session(
-                format!("Session {} not found", id),
-            ))
+            Err(crate::support::error::CastermError::Session(format!(
+                "Session {} not found",
+                id
+            )))
         }
     }
 

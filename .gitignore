@@ -104,4 +104,7 @@ $RECYCLE.BIN/
 /target/
 **/target/
 
+# Claude Code plan-mode scratch files
+.claude/plans/
+
 

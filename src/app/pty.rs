@@ -124,7 +124,9 @@ impl Pty {
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         match &mut self.reader {
             Some(r) => r.read(buf).map_err(|e| CastermError::Pty(e.to_string())),
-            None => Err(CastermError::Pty("PTY reader has been moved to background thread".to_string())),
+            None => Err(CastermError::Pty(
+                "PTY reader has been moved to background thread".to_string(),
+            )),
         }
     }
 

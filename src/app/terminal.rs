@@ -271,12 +271,7 @@ impl Terminal {
         // Save top line to scrollback
         let row_size = self.grid.size().cols as usize;
         let top_row: Vec<Cell> = (0..row_size)
-            .map(|col| {
-                self.grid
-                    .get(0, col as u16)
-                    .cloned()
-                    .unwrap_or_default()
-            })
+            .map(|col| self.grid.get(0, col as u16).cloned().unwrap_or_default())
             .collect();
 
         self.scrollback.push(top_row);

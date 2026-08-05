@@ -257,10 +257,14 @@ impl SerialManager {
     /// Validate a serial config
     pub fn validate(config: &SerialConfig) -> Result<()> {
         if config.device.is_empty() {
-            return Err(CastermError::Config("Serial device path cannot be empty".into()));
+            return Err(CastermError::Config(
+                "Serial device path cannot be empty".into(),
+            ));
         }
         if config.baud_rate == 0 {
-            return Err(CastermError::Config("Serial baud rate must be non-zero".into()));
+            return Err(CastermError::Config(
+                "Serial baud rate must be non-zero".into(),
+            ));
         }
         Ok(())
     }

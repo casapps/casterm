@@ -82,9 +82,8 @@ pub fn detect_shell() -> Option<PathBuf> {
         }
 
         // Windows PowerShell
-        let powershell = PathBuf::from(
-            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-        );
+        let powershell =
+            PathBuf::from("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
         if powershell.exists() {
             return Some(powershell);
         }

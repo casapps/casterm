@@ -74,4 +74,4 @@ fmt-check:
 	$(DOCKER_RUN) $(DOCKER_IMAGE) cargo fmt --all --check
 
 clean:
-	cargo clean 2>/dev/null || true
+	rm -rf "$(CARGO_TARGET)" target 2>/dev/null || true

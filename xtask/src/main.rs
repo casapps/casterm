@@ -92,11 +92,16 @@ fn completions(out_dir: &str) -> Result<(), String> {
 }
 
 fn run_command(mut cmd: Command) -> Result<(), String> {
-    let status = cmd.status().map_err(|e| format!("Failed to run command: {}", e))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to run command: {}", e))?;
 
     if status.success() {
         Ok(())
     } else {
-        Err(format!("Command failed with exit code: {:?}", status.code()))
+        Err(format!(
+            "Command failed with exit code: {:?}",
+            status.code()
+        ))
     }
 }

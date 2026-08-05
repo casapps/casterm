@@ -92,7 +92,12 @@ impl Platform {
         }
         #[cfg(target_os = "linux")]
         {
-            vec!["JetBrains Mono", "Fira Code", "DejaVu Sans Mono", "monospace"]
+            vec![
+                "JetBrains Mono",
+                "Fira Code",
+                "DejaVu Sans Mono",
+                "monospace",
+            ]
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         {

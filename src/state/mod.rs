@@ -143,7 +143,10 @@ impl HistoryState {
         }
     }
 
-    pub fn search<'a, 'b>(&'a self, prefix: &'b str) -> impl Iterator<Item = &'a String> + use<'a, 'b> {
+    pub fn search<'a, 'b>(
+        &'a self,
+        prefix: &'b str,
+    ) -> impl Iterator<Item = &'a String> + use<'a, 'b> {
         self.commands
             .iter()
             .rev()

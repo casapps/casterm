@@ -23,7 +23,9 @@ impl Assets {
     }
 
     /// List all files matching a prefix
-    pub fn list_prefix(prefix: &str) -> impl Iterator<Item = std::borrow::Cow<'static, str>> + use<'_> {
+    pub fn list_prefix(
+        prefix: &str,
+    ) -> impl Iterator<Item = std::borrow::Cow<'static, str>> + use<'_> {
         Self::iter().filter(move |name| name.starts_with(prefix))
     }
 }

@@ -445,4 +445,3 @@ pub enum UpdateChannel {
     Beta,
     Daily,
 }
-

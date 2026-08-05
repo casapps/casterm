@@ -129,9 +129,7 @@ impl<'a> Perform for Performer<'a> {
                     for row in cursor.row..size.rows {
                         let start_col = if row == cursor.row { cursor.col } else { 0 };
                         for col in start_col..size.cols {
-                            self.terminal
-                                .grid_mut()
-                                .set(row, col, Cell::default());
+                            self.terminal.grid_mut().set(row, col, Cell::default());
                         }
                     }
                 }
@@ -139,11 +137,13 @@ impl<'a> Perform for Performer<'a> {
                     // Erase from start to cursor
                     let cursor = self.terminal.cursor();
                     for row in 0..=cursor.row {
-                        let end_col = if row == cursor.row { cursor.col } else { self.terminal.size().cols };
+                        let end_col = if row == cursor.row {
+                            cursor.col
+                        } else {
+                            self.terminal.size().cols
+                        };
                         for col in 0..end_col {
-                            self.terminal
-                                .grid_mut()
-                                .set(row, col, Cell::default());
+                            self.terminal.grid_mut().set(row, col, Cell::default());
                         }
                     }
                 }
@@ -160,17 +160,23 @@ impl<'a> Perform for Performer<'a> {
                 match p0 {
                     0 => {
                         for col in cursor.col..size.cols {
-                            self.terminal.grid_mut().set(cursor.row, col, Cell::default());
+                            self.terminal
+                                .grid_mut()
+                                .set(cursor.row, col, Cell::default());
                         }
                     }
                     1 => {
                         for col in 0..=cursor.col {
-                            self.terminal.grid_mut().set(cursor.row, col, Cell::default());
+                            self.terminal
+                                .grid_mut()
+                                .set(cursor.row, col, Cell::default());
                         }
                     }
                     2 => {
                         for col in 0..size.cols {
-                            self.terminal.grid_mut().set(cursor.row, col, Cell::default());
+                            self.terminal
+                                .grid_mut()
+                                .set(cursor.row, col, Cell::default());
                         }
                     }
                     _ => {}
