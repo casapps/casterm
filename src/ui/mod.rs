@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod gui;
+pub mod render_model;
 pub mod tui;
 
 use crate::config::Config;

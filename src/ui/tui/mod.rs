@@ -1,14 +1,12 @@
 //! TUI mode using ratatui + crossterm with full PTY-backed terminal emulation
 
 use std::collections::HashMap;
-use std::io::{stdout, Read};
+use std::io::stdout;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::thread;
 use std::time::Duration;
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
+    event::{self, Event, KeyEvent, KeyEventKind},
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, size as terminal_size, EnterAlternateScreen,
@@ -26,245 +24,19 @@ use ratatui::{
 
 use crate::app::keybindings::{KeymapResolver, Resolved};
 use crate::app::multiplexer::{Layout, PaneId, SplitDirection, Window};
-use crate::app::pty::{Pty, PtyConfig};
-use crate::app::serial::{SerialConfig, SerialConnection};
-use crate::app::serial_transport::SerialMsg;
+use crate::app::pane_runtime::{
+    spawn_pane_runtime, spawn_serial_pane_runtime, spawn_ssh_pane_runtime, PaneBackend,
+    PaneRuntime, PtyMsg,
+};
+use crate::app::serial::SerialConfig;
 use crate::app::session::{Session, SessionId};
-use crate::app::ssh::{SshConfig, SshConnection};
-use crate::app::ssh_transport::SshMsg;
-use crate::app::terminal::{TermColor, Terminal as TerminalEmulator, TerminalSize};
-use crate::app::vte_processor::VteProcessor;
+use crate::app::ssh::SshConfig;
+use crate::app::terminal::{Terminal as TerminalEmulator, TerminalSize};
 use crate::app::App;
 use crate::config::{Config, StatusBarPosition, ThemePalette};
 use crate::state::{PaneState, WindowState};
 use crate::support::error::{CastermError, Result};
-
-/// Messages from a pane's PTY reader thread
-enum PtyMsg {
-    Data(Vec<u8>),
-    Exit,
-}
-
-/// A pane's live I/O backend: a local PTY-backed shell, a remote SSH
-/// session, or a serial device. All three feed the same `PtyMsg` shape into
-/// the pane's terminal emulator/VTE parser, so the render/drain/write/
-/// resize paths don't need to know which backend a given pane is running.
-enum PaneBackend {
-    Local {
-        pty: Pty,
-        rx: mpsc::Receiver<PtyMsg>,
-    },
-    Ssh {
-        conn: Box<SshConnection>,
-    },
-    Serial {
-        conn: Box<SerialConnection>,
-    },
-}
-
-impl PaneBackend {
-    fn try_recv(&self) -> Option<PtyMsg> {
-        match self {
-            PaneBackend::Local { rx, .. } => rx.try_recv().ok(),
-            PaneBackend::Ssh { conn } => conn.try_recv().map(|msg| match msg {
-                SshMsg::Data(data) => PtyMsg::Data(data),
-                SshMsg::Exit => PtyMsg::Exit,
-            }),
-            PaneBackend::Serial { conn } => conn.try_recv().map(|msg| match msg {
-                SerialMsg::Data(data) => PtyMsg::Data(data),
-                SerialMsg::Disconnected => PtyMsg::Exit,
-            }),
-        }
-    }
-
-    fn write(&mut self, data: &[u8]) -> Result<()> {
-        match self {
-            PaneBackend::Local { pty, .. } => pty.write(data).map(|_| ()),
-            PaneBackend::Ssh { conn } => conn.write(data),
-            PaneBackend::Serial { conn } => conn.write(data),
-        }
-    }
-
-    fn resize(&self, rows: u16, cols: u16) -> Result<()> {
-        match self {
-            PaneBackend::Local { pty, .. } => pty.resize(rows, cols),
-            PaneBackend::Ssh { conn } => conn.resize(cols, rows),
-            // Serial devices have no concept of a terminal size — resize
-            // is a PTY/SSH-only notion.
-            PaneBackend::Serial { .. } => Ok(()),
-        }
-    }
-
-    /// Gracefully tear down an SSH or serial session before the pane is
-    /// dropped (local PTYs don't need this — their child process is killed
-    /// by `Pty`'s own `Drop` impl).
-    fn disconnect(&mut self) {
-        match self {
-            PaneBackend::Ssh { conn } => conn.disconnect(),
-            PaneBackend::Serial { conn } => conn.disconnect(),
-            PaneBackend::Local { .. } => {}
-        }
-    }
-}
-
-/// The live state backing a single pane: its I/O backend and its own
-/// terminal emulator/VTE parser. Each pane runs an independent shell or SSH
-/// session — splitting a window multiplies this, it doesn't share one
-/// backend across panes.
-struct PaneRuntime {
-    backend: PaneBackend,
-    emulator: TerminalEmulator,
-    vte: VteProcessor,
-    /// The working directory this pane's shell was spawned in — tracked so
-    /// session save/restore (`state::PaneState.cwd`) can re-open a restored
-    /// pane in the same place. Defaults to the process's own cwd when the
-    /// caller doesn't request a specific one. SSH panes report the local
-    /// process's own cwd here since they have no local shell directory of
-    /// their own.
-    cwd: PathBuf,
-}
-
-/// Spawn a shell PTY plus its background reader thread and terminal
-/// emulator for one pane, starting the shell in `cwd` (falling back to the
-/// process's own working directory when `None`).
-fn spawn_pane_runtime(
-    config: &Config,
-    size: TerminalSize,
-    cwd: Option<PathBuf>,
-) -> Result<PaneRuntime> {
-    let shell = config
-        .shell
-        .path
-        .clone()
-        .or_else(crate::config::detect_shell)
-        .unwrap_or_else(|| {
-            #[cfg(windows)]
-            {
-                std::path::PathBuf::from("cmd.exe")
-            }
-            #[cfg(not(windows))]
-            {
-                std::path::PathBuf::from("/bin/sh")
-            }
-        });
-
-    let resolved_cwd = cwd
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-
-    let mut pty_config = PtyConfig {
-        shell,
-        rows: size.rows,
-        cols: size.cols,
-        cwd,
-        ..Default::default()
-    };
-    // Advertise true-color support so shells and editors use it. Prefer
-    // casterm's own embedded terminfo entry (extracted to a per-user
-    // cache dir, never installed system-wide); fall back to the
-    // universally-available xterm-256color identity if it's missing.
-    match crate::support::terminfo::install() {
-        Some(terminfo_dir) => {
-            pty_config.env.push((
-                "TERM".to_string(),
-                crate::support::terminfo::TERM_NAME.to_string(),
-            ));
-            pty_config
-                .env
-                .push(("TERMINFO".to_string(), terminfo_dir.display().to_string()));
-        }
-        None => {
-            pty_config
-                .env
-                .push(("TERM".to_string(), "xterm-256color".to_string()));
-        }
-    }
-    pty_config
-        .env
-        .push(("COLORTERM".to_string(), "truecolor".to_string()));
-
-    let mut pty = Pty::spawn(pty_config)?;
-
-    // Move reader into a background thread; send bytes back via channel
-    let (tx, pty_rx) = mpsc::channel::<PtyMsg>();
-    let mut reader = pty
-        .take_reader()
-        .ok_or_else(|| CastermError::Pty("PTY reader not available".to_string()))?;
-
-    thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => {
-                    let _ = tx.send(PtyMsg::Exit);
-                    break;
-                }
-                Ok(n) => {
-                    if tx.send(PtyMsg::Data(buf[..n].to_vec())).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => {
-                    let _ = tx.send(PtyMsg::Exit);
-                    break;
-                }
-            }
-        }
-    });
-
-    let emulator = TerminalEmulator::new(size);
-    let vte = VteProcessor::new();
-
-    Ok(PaneRuntime {
-        backend: PaneBackend::Local { pty, rx: pty_rx },
-        emulator,
-        vte,
-        cwd: resolved_cwd,
-    })
-}
-
-/// Connect an SSH-backed pane and open an interactive remote shell,
-/// blocking until the connection either succeeds or fails (same contract as
-/// `spawn_pane_runtime` for a local shell).
-fn spawn_ssh_pane_runtime(ssh_config: &SshConfig, size: TerminalSize) -> Result<PaneRuntime> {
-    let mut conn = SshConnection::new(ssh_config.clone());
-    conn.connect(size.cols, size.rows)?;
-
-    let emulator = TerminalEmulator::new(size);
-    let vte = VteProcessor::new();
-
-    Ok(PaneRuntime {
-        backend: PaneBackend::Ssh {
-            conn: Box::new(conn),
-        },
-        emulator,
-        vte,
-        cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    })
-}
-
-/// Connect a serial-backed pane and open the device, blocking only for the
-/// local open syscall (same contract as `spawn_pane_runtime`/
-/// `spawn_ssh_pane_runtime`, but there's no remote handshake to await).
-fn spawn_serial_pane_runtime(
-    serial_config: &SerialConfig,
-    size: TerminalSize,
-) -> Result<PaneRuntime> {
-    let mut conn = SerialConnection::new(serial_config.clone());
-    conn.connect()?;
-
-    let emulator = TerminalEmulator::new(size);
-    let vte = VteProcessor::new();
-
-    Ok(PaneRuntime {
-        backend: PaneBackend::Serial {
-            conn: Box::new(conn),
-        },
-        emulator,
-        vte,
-        cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    })
-}
+use crate::ui::render_model::{encode_key, resolve_grid, Rgb};
 
 /// Convert a live window + its running panes into a serializable
 /// `WindowState`, pairing each pane with the working directory its
@@ -777,84 +549,10 @@ fn pane_inner_size(rect: Rect, pane_count: usize) -> TerminalSize {
     }
 }
 
-/// Encode a crossterm `KeyEvent` to the byte sequence sent over the PTY
-fn encode_key(key: KeyEvent) -> Vec<u8> {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
-
-    let mut bytes: Vec<u8> = match key.code {
-        KeyCode::Char(c) => {
-            if ctrl {
-                let byte = (c as u8).to_ascii_lowercase();
-                if byte.is_ascii_lowercase() {
-                    vec![byte - b'a' + 1]
-                } else {
-                    match c {
-                        '@' => vec![0x00],
-                        '[' => vec![0x1B],
-                        '\\' => vec![0x1C],
-                        ']' => vec![0x1D],
-                        '^' => vec![0x1E],
-                        '_' => vec![0x1F],
-                        _ => {
-                            let mut buf = [0u8; 4];
-                            c.encode_utf8(&mut buf).as_bytes().to_vec()
-                        }
-                    }
-                }
-            } else {
-                let mut buf = [0u8; 4];
-                c.encode_utf8(&mut buf).as_bytes().to_vec()
-            }
-        }
-        KeyCode::Enter => vec![b'\r'],
-        KeyCode::Backspace => vec![0x7F],
-        KeyCode::Delete => vec![0x1B, b'[', b'3', b'~'],
-        KeyCode::Esc => vec![0x1B],
-        KeyCode::Tab => {
-            if key.modifiers.contains(KeyModifiers::SHIFT) {
-                vec![0x1B, b'[', b'Z']
-            } else {
-                vec![b'\t']
-            }
-        }
-        KeyCode::Up => vec![0x1B, b'[', b'A'],
-        KeyCode::Down => vec![0x1B, b'[', b'B'],
-        KeyCode::Right => vec![0x1B, b'[', b'C'],
-        KeyCode::Left => vec![0x1B, b'[', b'D'],
-        KeyCode::Home => vec![0x1B, b'[', b'H'],
-        KeyCode::End => vec![0x1B, b'[', b'F'],
-        KeyCode::PageUp => vec![0x1B, b'[', b'5', b'~'],
-        KeyCode::PageDown => vec![0x1B, b'[', b'6', b'~'],
-        KeyCode::F(n) => match n {
-            1 => vec![0x1B, b'O', b'P'],
-            2 => vec![0x1B, b'O', b'Q'],
-            3 => vec![0x1B, b'O', b'R'],
-            4 => vec![0x1B, b'O', b'S'],
-            5 => vec![0x1B, b'[', b'1', b'5', b'~'],
-            6 => vec![0x1B, b'[', b'1', b'7', b'~'],
-            7 => vec![0x1B, b'[', b'1', b'8', b'~'],
-            8 => vec![0x1B, b'[', b'1', b'9', b'~'],
-            9 => vec![0x1B, b'[', b'2', b'0', b'~'],
-            10 => vec![0x1B, b'[', b'2', b'1', b'~'],
-            11 => vec![0x1B, b'[', b'2', b'3', b'~'],
-            12 => vec![0x1B, b'[', b'2', b'4', b'~'],
-            _ => vec![],
-        },
-        _ => vec![],
-    };
-
-    // Alt prefix: prepend ESC
-    if alt && !bytes.is_empty() {
-        let mut alt_bytes = vec![0x1B];
-        alt_bytes.extend_from_slice(&bytes);
-        bytes = alt_bytes;
-    }
-
-    bytes
-}
-
-/// Widget that renders the terminal emulator grid into a ratatui Buffer
+/// Widget that renders the terminal emulator grid into a ratatui Buffer.
+/// Cell-to-color/attribute resolution lives in `ui::render_model`, shared
+/// with `ui::gui`'s wgpu renderer, so cursor/reverse-video/attribute logic
+/// only exists in one place.
 struct TerminalGrid<'a> {
     emulator: &'a TerminalEmulator,
     theme: &'a ThemePalette,
@@ -862,14 +560,12 @@ struct TerminalGrid<'a> {
 
 impl<'a> Widget for TerminalGrid<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let grid = self.emulator.grid();
-        let cursor = self.emulator.cursor();
         let size = self.emulator.size();
-
         let (dfr, dfg, dfb) = self.theme.fg_rgb();
         let (dbr, dbg, dbb) = self.theme.bg_rgb();
         let default_fg = Color::Rgb(dfr, dfg, dfb);
         let default_bg = Color::Rgb(dbr, dbg, dbb);
+        let resolved = resolve_grid(self.emulator, self.theme);
 
         for row in 0..area.height {
             for col in 0..area.width {
@@ -884,82 +580,42 @@ impl<'a> Widget for TerminalGrid<'a> {
                     continue;
                 }
 
-                let cell = grid.get(row, col).cloned().unwrap_or_default();
-
-                let is_cursor =
-                    cursor.row == row && cursor.col == col && self.emulator.cursor_visible();
-
-                let mut fg = resolve_color(cell.attrs.fg, true, self.theme, default_fg, default_bg);
-                let mut bg =
-                    resolve_color(cell.attrs.bg, false, self.theme, default_fg, default_bg);
-
-                // Reverse video attribute swaps fg/bg
-                if cell.attrs.reverse {
-                    std::mem::swap(&mut fg, &mut bg);
-                }
-
-                // Cursor: invert the cell colors
-                if is_cursor {
-                    std::mem::swap(&mut fg, &mut bg);
-                }
+                let idx = row as usize * size.cols as usize + col as usize;
+                let resolved_cell = resolved[idx];
 
                 let mut modifier = Modifier::empty();
-                if cell.attrs.bold {
+                if resolved_cell.bold {
                     modifier |= Modifier::BOLD;
                 }
-                if cell.attrs.italic {
+                if resolved_cell.italic {
                     modifier |= Modifier::ITALIC;
                 }
-                if cell.attrs.underline {
+                if resolved_cell.underline {
                     modifier |= Modifier::UNDERLINED;
                 }
-                if cell.attrs.blink {
+                if resolved_cell.blink {
                     modifier |= Modifier::SLOW_BLINK;
                 }
-                if cell.attrs.hidden {
+                if resolved_cell.hidden {
                     modifier |= Modifier::HIDDEN;
                 }
-                if cell.attrs.strikethrough {
+                if resolved_cell.strikethrough {
                     modifier |= Modifier::CROSSED_OUT;
                 }
 
-                let display_char = if cell.char == '\0' { ' ' } else { cell.char };
                 let mut sym_buf = [0u8; 4];
-                let sym = display_char.encode_utf8(&mut sym_buf);
+                let sym = resolved_cell.ch.encode_utf8(&mut sym_buf);
+                let Rgb(fr, fg, fb) = resolved_cell.fg;
+                let Rgb(br, bg, bb) = resolved_cell.bg;
 
                 if let Some(cell) = buf.cell_mut((x, y)) {
                     cell.set_symbol(sym)
-                        .set_fg(fg)
-                        .set_bg(bg)
+                        .set_fg(Color::Rgb(fr, fg, fb))
+                        .set_bg(Color::Rgb(br, bg, bb))
                         .set_style(Style::default().add_modifier(modifier));
                 }
             }
         }
-    }
-}
-
-/// Resolve a `TermColor` to a ratatui `Color`, using the theme palette for ANSI indices 0-15
-fn resolve_color(
-    color: TermColor,
-    is_fg: bool,
-    theme: &ThemePalette,
-    default_fg: Color,
-    default_bg: Color,
-) -> Color {
-    match color {
-        TermColor::Default => {
-            if is_fg {
-                default_fg
-            } else {
-                default_bg
-            }
-        }
-        TermColor::Indexed(n) if n < 16 => {
-            let (r, g, b) = theme.ansi_color(n);
-            Color::Rgb(r, g, b)
-        }
-        TermColor::Indexed(n) => Color::Indexed(n),
-        TermColor::Rgb(r, g, b) => Color::Rgb(r, g, b),
     }
 }
 

@@ -115,6 +115,46 @@ conversation"). Remove each line only once fully implemented.
 - Serial panes are not part of session save/restore — same limitation as
   SSH panes above.
 
+## Phase 6 — GUI (winit + wgpu) (implemented)
+
+- Single-window, single-pane MVP only — no multi-window/multi-pane splits
+  in the GUI yet. `app::pane_runtime` already supports it structurally;
+  the GUI event loop (`ui::gui::window::GuiApp`) would need a pane tree
+  like `TuiApp`'s to drive more than one.
+- SSH- and serial-backed GUI panes are out of scope — `spawn_ssh_pane_runtime`/
+  `spawn_serial_pane_runtime` exist and are shared-ready, but
+  `ui::gui::window::GuiApp` only calls `spawn_pane_runtime` (local shell).
+- No embedded font — `ui::gui::font::find_monospace_font_path` does
+  best-effort system font discovery (`CASTERM_GUI_FONT_PATH` override, a
+  well-known-path list, then a bounded directory walk for anything with
+  "mono" in its file name). IDEA.md's "bundle a Nerd Font" stretch goal is
+  not implemented; a headless/minimal system (no fonts installed at all)
+  will fail to start the GUI.
+- `FontConfig.family` is not honored — the GUI always uses whatever
+  `font::load_font()` finds; it doesn't try to match the configured family
+  name against installed fonts.
+- No transparency, background images, quick-terminal global-hotkey
+  overlay, or CRT/scanline shader effects — the renderer draws flat
+  opaque cell quads only.
+- No HiDPI scale-factor query — `ui::gui::window::font_px` assumes a flat
+  96 DPI when converting the configured point size to rasterization
+  pixels; on a scaled display glyphs will be too small.
+- Selection is stream-style (xterm-like) only — no rectangular/block
+  selection mode, and no keyboard-driven selection (mouse click-drag only).
+- Copy-on-select-release only — no explicit "copy" keybinding, and no
+  paste wiring (`arboard` is only used for `set_text`, not `get_text`).
+- No scrollback/mouse-wheel handling in the GUI — `WindowEvent::MouseWheel`
+  is not handled; the TUI's scrollback viewer has no GUI equivalent yet.
+- Glyph atlas is fixed-size (2048x2048) and never grows — once full,
+  further never-before-seen glyphs render as blank cells rather than
+  evicting/re-packing existing ones.
+- Headless wgpu smoke test (`ui::gui::renderer::tests::headless_instance_and_optional_device`)
+  treats a missing GPU adapter as a pass, not a failure — the
+  `casjaysdev/rust:latest` Docker toolchain image has no GPU/Vulkan driver
+  installed by default (`mesa-vulkan-swrast`/lavapipe is available via
+  `apk` but not preinstalled), so this test can't assert a real device is
+  always obtainable in CI.
+
 ## Audit findings carried forward (not yet fixed)
 
 - `aws-lc-sys` pulled into the dependency tree via `rustls`'s default

@@ -2,6 +2,7 @@
 
 pub mod keybindings;
 pub mod multiplexer;
+pub mod pane_runtime;
 pub mod pty;
 pub mod serial;
 pub mod serial_transport;

@@ -291,6 +291,16 @@ impl ThemePalette {
     pub fn cursor_rgb(&self) -> (u8, u8, u8) {
         parse_hex_color(&self.cursor).unwrap_or((200, 200, 200))
     }
+
+    /// Selection highlight background color as `(r, g, b)`.
+    pub fn selection_bg_rgb(&self) -> (u8, u8, u8) {
+        parse_hex_color(&self.selection_background).unwrap_or((68, 71, 90))
+    }
+
+    /// Selection highlight foreground color as `(r, g, b)`.
+    pub fn selection_fg_rgb(&self) -> (u8, u8, u8) {
+        parse_hex_color(&self.selection_foreground).unwrap_or((248, 248, 242))
+    }
 }
 
 /// Detect system theme preference
