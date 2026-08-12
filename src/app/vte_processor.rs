@@ -44,7 +44,7 @@ impl<'a> Perform for Performer<'a> {
             // Tab
             0x09 => self.terminal.write_char('\t'),
             // LF/VT/FF
-            0x0A | 0x0B | 0x0C => self.terminal.write_char('\n'),
+            0x0A..=0x0C => self.terminal.write_char('\n'),
             // CR
             0x0D => self.terminal.write_char('\r'),
             _ => {}
@@ -86,14 +86,14 @@ impl<'a> Perform for Performer<'a> {
         match action {
             // CUU: cursor up
             'A' => {
-                let n = p0.max(1) as u16;
+                let n = p0.max(1);
                 let cursor = self.terminal.cursor();
                 self.terminal
                     .set_cursor(cursor.row.saturating_sub(n), cursor.col);
             }
             // CUD: cursor down
             'B' => {
-                let n = p0.max(1) as u16;
+                let n = p0.max(1);
                 let cursor = self.terminal.cursor();
                 let max_row = self.terminal.size().rows.saturating_sub(1);
                 self.terminal
@@ -101,7 +101,7 @@ impl<'a> Perform for Performer<'a> {
             }
             // CUF: cursor forward
             'C' => {
-                let n = p0.max(1) as u16;
+                let n = p0.max(1);
                 let cursor = self.terminal.cursor();
                 let max_col = self.terminal.size().cols.saturating_sub(1);
                 self.terminal
@@ -109,15 +109,15 @@ impl<'a> Perform for Performer<'a> {
             }
             // CUB: cursor backward
             'D' => {
-                let n = p0.max(1) as u16;
+                let n = p0.max(1);
                 let cursor = self.terminal.cursor();
                 self.terminal
                     .set_cursor(cursor.row, cursor.col.saturating_sub(n));
             }
             // CUP/HVP: cursor position (1-indexed)
             'H' | 'f' => {
-                let row = p0.saturating_sub(1) as u16;
-                let col = ps.get(1).copied().unwrap_or(1).saturating_sub(1) as u16;
+                let row = p0.saturating_sub(1);
+                let col = ps.get(1).copied().unwrap_or(1).saturating_sub(1);
                 self.terminal.set_cursor(row, col);
             }
             // ED: erase in display
@@ -205,7 +205,7 @@ impl<'a> Perform for Performer<'a> {
             }
             // DECSCUSR: cursor style
             'q' => match p0 {
-                0 | 1 | 2 => self.terminal.set_cursor_style(CursorStyle::Block),
+                0..=2 => self.terminal.set_cursor_style(CursorStyle::Block),
                 3 | 4 => self.terminal.set_cursor_style(CursorStyle::Underline),
                 5 | 6 => self.terminal.set_cursor_style(CursorStyle::Bar),
                 _ => {}

@@ -4,6 +4,7 @@ pub mod keybindings;
 pub mod multiplexer;
 pub mod pty;
 pub mod serial;
+pub mod serial_transport;
 pub mod session;
 pub mod ssh;
 pub mod ssh_transport;

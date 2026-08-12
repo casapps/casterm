@@ -130,16 +130,17 @@ pub enum SerialState {
     Disconnected,
     Connecting,
     Connected,
-    Reconnecting,
     Failed,
 }
 
-/// A serial connection entry in the manager
+/// A live serial connection: configuration, state, and (once connected) the
+/// open transport streaming device I/O.
 pub struct SerialConnection {
     pub config: SerialConfig,
     pub state: SerialState,
     /// Error message if state is Failed
     pub error: Option<String>,
+    transport: Option<super::serial_transport::SerialTransport>,
 }
 
 impl SerialConnection {
@@ -148,159 +149,92 @@ impl SerialConnection {
             config,
             state: SerialState::Disconnected,
             error: None,
-        }
-    }
-}
-
-/// Named serial port preset — saved baud/data/parity/stop/flow settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerialPreset {
-    pub name: String,
-    pub baud_rate: u32,
-    pub data_bits: DataBits,
-    pub parity: Parity,
-    pub stop_bits: StopBits,
-    pub flow_control: FlowControl,
-}
-
-impl SerialPreset {
-    /// Common presets
-    pub fn common_presets() -> Vec<Self> {
-        vec![
-            Self {
-                name: "115200-8N1".to_string(),
-                baud_rate: 115200,
-                data_bits: DataBits::Eight,
-                parity: Parity::None,
-                stop_bits: StopBits::One,
-                flow_control: FlowControl::None,
-            },
-            Self {
-                name: "9600-8N1".to_string(),
-                baud_rate: 9600,
-                data_bits: DataBits::Eight,
-                parity: Parity::None,
-                stop_bits: StopBits::One,
-                flow_control: FlowControl::None,
-            },
-            Self {
-                name: "57600-8N1".to_string(),
-                baud_rate: 57600,
-                data_bits: DataBits::Eight,
-                parity: Parity::None,
-                stop_bits: StopBits::One,
-                flow_control: FlowControl::None,
-            },
-            Self {
-                name: "4800-7E1".to_string(),
-                baud_rate: 4800,
-                data_bits: DataBits::Seven,
-                parity: Parity::Even,
-                stop_bits: StopBits::One,
-                flow_control: FlowControl::None,
-            },
-        ]
-    }
-}
-
-/// Serial connection manager
-pub struct SerialManager {
-    connections: Vec<SerialConnection>,
-    presets: Vec<SerialPreset>,
-}
-
-impl SerialManager {
-    pub fn new() -> Self {
-        Self {
-            connections: Vec::new(),
-            presets: SerialPreset::common_presets(),
+            transport: None,
         }
     }
 
-    /// Add a new serial connection
-    pub fn add(&mut self, config: SerialConfig) -> SerialId {
-        let id = config.id;
-        self.connections.push(SerialConnection::new(config));
-        id
-    }
-
-    /// Remove a serial connection
-    pub fn remove(&mut self, id: SerialId) {
-        self.connections.retain(|c| c.config.id != id);
-    }
-
-    /// Get all serial connections
-    pub fn list(&self) -> &[SerialConnection] {
-        &self.connections
-    }
-
-    /// Find a connection by ID
-    pub fn get(&self, id: SerialId) -> Option<&SerialConnection> {
-        self.connections.iter().find(|c| c.config.id == id)
-    }
-
-    /// Find a connection by ID (mutable)
-    pub fn get_mut(&mut self, id: SerialId) -> Option<&mut SerialConnection> {
-        self.connections.iter_mut().find(|c| c.config.id == id)
-    }
-
-    /// List available serial presets
-    pub fn presets(&self) -> &[SerialPreset] {
-        &self.presets
-    }
-
-    /// Add a named preset
-    pub fn add_preset(&mut self, preset: SerialPreset) {
-        self.presets.push(preset);
-    }
-
-    /// Validate a serial config
-    pub fn validate(config: &SerialConfig) -> Result<()> {
-        if config.device.is_empty() {
-            return Err(CastermError::Config(
-                "Serial device path cannot be empty".into(),
-            ));
-        }
-        if config.baud_rate == 0 {
-            return Err(CastermError::Config(
-                "Serial baud rate must be non-zero".into(),
-            ));
-        }
-        Ok(())
-    }
-
-    /// List available serial ports on the current system
-    #[cfg(not(target_os = "windows"))]
-    pub fn list_ports() -> Vec<String> {
-        use std::path::Path;
-
-        let prefixes = [
-            "/dev/ttyUSB",
-            "/dev/ttyACM",
-            "/dev/ttyS",
-            "/dev/tty.",
-            "/dev/cu.",
-        ];
-
-        let mut ports = Vec::new();
-
-        for prefix in &prefixes {
-            for i in 0..32 {
-                let path = format!("{}{}", prefix, i);
-                if Path::new(&path).exists() {
-                    ports.push(path);
-                }
+    /// Open the device, blocking only for the local open syscall (there is
+    /// no remote handshake, unlike SSH). On success `state` becomes
+    /// `Connected`; on failure it becomes `Failed` with `error` set and the
+    /// error is also returned to the caller.
+    pub fn connect(&mut self) -> Result<()> {
+        self.state = SerialState::Connecting;
+        match super::serial_transport::SerialTransport::connect(&self.config) {
+            Ok(transport) => {
+                self.transport = Some(transport);
+                self.state = SerialState::Connected;
+                self.error = None;
+                Ok(())
+            }
+            Err(e) => {
+                self.state = SerialState::Failed;
+                // Surface the ports that *are* available so a typo'd or
+                // unplugged device path is easy to diagnose from the error
+                // alone.
+                let available = list_ports();
+                let message = if available.is_empty() {
+                    format!("{e} (no serial ports detected)")
+                } else {
+                    format!("{e} (available ports: {})", available.join(", "))
+                };
+                self.error = Some(message.clone());
+                Err(CastermError::Serial(message))
             }
         }
-
-        ports.sort();
-        ports
     }
 
-    #[cfg(target_os = "windows")]
-    pub fn list_ports() -> Vec<String> {
-        (1..=32).map(|i| format!("COM{}", i)).collect()
+    /// Close the port, discarding the transport.
+    pub fn disconnect(&mut self) {
+        self.transport = None;
+        self.state = SerialState::Disconnected;
     }
+
+    /// Write keystrokes to the device.
+    pub fn write(&mut self, data: &[u8]) -> Result<()> {
+        match &mut self.transport {
+            Some(t) => t.write(data),
+            None => Err(CastermError::Serial("serial port is not open".to_string())),
+        }
+    }
+
+    /// Non-blocking poll for the next byte chunk (or disconnect notice)
+    /// from the device, matching the drain pattern `ui::tui` uses for local
+    /// PTY and SSH panes.
+    pub fn try_recv(&self) -> Option<super::serial_transport::SerialMsg> {
+        self.transport.as_ref().and_then(|t| t.try_recv())
+    }
+
+    /// Whether incoming bytes are currently being hex-formatted for
+    /// display — used by the TUI to mark hex-mode panes in their title.
+    pub fn hex_mode(&self) -> bool {
+        self.transport.as_ref().is_some_and(|t| t.hex_mode())
+    }
+}
+
+/// Validate a serial config — returns Ok(()) if all required fields are
+/// present.
+pub fn validate(config: &SerialConfig) -> Result<()> {
+    if config.device.is_empty() {
+        return Err(CastermError::Config(
+            "Serial device path cannot be empty".into(),
+        ));
+    }
+    if config.baud_rate == 0 {
+        return Err(CastermError::Config(
+            "Serial baud rate must be non-zero".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// List available serial ports on the current system via the `serialport`
+/// crate, which already handles per-platform enumeration correctly (USB
+/// CDC-ACM, PCI, Bluetooth-serial, and platform-native device naming)
+/// instead of hand-rolled `/dev/ttyUSB*`-style directory probing.
+pub fn list_ports() -> Vec<String> {
+    serialport::available_ports()
+        .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
+        .unwrap_or_default()
 }
 
 /// Get the platform default serial device path

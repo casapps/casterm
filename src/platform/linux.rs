@@ -29,7 +29,7 @@ impl Linux {
             .unwrap_or_else(|_| {
                 dirs::home_dir()
                     .map(|h| h.join(".config"))
-                    .unwrap_or_else(|| std::env::temp_dir())
+                    .unwrap_or_else(std::env::temp_dir)
             })
     }
 
@@ -40,7 +40,7 @@ impl Linux {
             .unwrap_or_else(|_| {
                 dirs::home_dir()
                     .map(|h| h.join(".local/share"))
-                    .unwrap_or_else(|| std::env::temp_dir())
+                    .unwrap_or_else(std::env::temp_dir)
             })
     }
 

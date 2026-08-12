@@ -91,6 +91,30 @@ conversation"). Remove each line only once fully implemented.
   `PaneState` doesn't distinguish SSH panes, so a restored session always
   re-spawns local shells even if the original pane was SSH-backed.
 
+## Phase 5 — Serial transport (implemented)
+
+- Break-signal support — the `serialport` crate exposes no break-condition
+  API on its `SerialPort` trait; would need a platform-specific ioctl
+  (`TIOCSBRK`/`TIOCCBRK` on Unix) added directly.
+- Auto-reconnect backoff tuning — `SerialConfig.auto_reconnect`/
+  `reconnect_delay` are plain data fields with no reconnect loop behind
+  them; `SerialState::Reconnecting` was removed as dead code rather than
+  kept unimplemented, mirroring the SSH `Reconnecting` situation above.
+  Reintroduce the variant when auto-reconnect is built.
+- `Parity::Mark`/`Parity::Space` are rejected at connect time —
+  `serialport` has no mark/space parity support on any backend.
+- `StopBits::OneAndHalf` is collapsed onto `StopBits::One` when opening the
+  device — `serialport` has no distinct 1.5-stop-bit variant.
+- Persistent serial device directory (saved connection profiles) — the old
+  `SerialManager` struct and `SerialPreset`/`common_presets()` scaffolding
+  were deleted as genuinely unused, zero-caller code; `validate` was kept
+  as a free function in `serial.rs`. Reintroduce a manager/preset type when
+  that CLI/TUI surface is built.
+- `--serial` CLI flag is baud-only — no flags yet for choosing data bits,
+  parity, stop bits, or flow control from the command line.
+- Serial panes are not part of session save/restore — same limitation as
+  SSH panes above.
+
 ## Audit findings carried forward (not yet fixed)
 
 - `aws-lc-sys` pulled into the dependency tree via `rustls`'s default

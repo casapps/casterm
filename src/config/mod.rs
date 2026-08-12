@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use crate::support::error::Result;
 
 /// Main configuration structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     // Shell
@@ -47,24 +47,6 @@ pub struct Config {
 
     // Updates
     pub updates: UpdatesConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            shell: ShellConfig::default(),
-            theme: ThemeConfig::default(),
-            font: FontConfig::default(),
-            cursor: CursorConfig::default(),
-            behavior: BehaviorConfig::default(),
-            multiplexer: MultiplexerConfig::default(),
-            status_bar: StatusBarConfig::default(),
-            keybindings: KeyBindingsConfig::default(),
-            connections: ConnectionsConfig::default(),
-            logging: LoggingConfig::default(),
-            updates: UpdatesConfig::default(),
-        }
-    }
 }
 
 impl Config {

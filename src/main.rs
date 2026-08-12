@@ -89,6 +89,12 @@ struct Cli {
     /// matching a plain `ssh user@host` invocation with no `-i`/`-o`
     #[arg(long, value_name = "USER@HOST[:PORT]")]
     ssh: Option<String>,
+
+    /// Connect the starting pane to a serial device instead of a local
+    /// shell or SSH (device path, e.g. `/dev/ttyUSB0` or `COM3`; optionally
+    /// `device@baud`, e.g. `/dev/ttyUSB0@9600` — defaults to 115200 8N1)
+    #[arg(long, value_name = "DEVICE[@BAUD]")]
+    serial: Option<String>,
 }
 
 /// Parse the `--ssh user@host[:port]` flag into an `SshConfig`, defaulting
@@ -130,6 +136,37 @@ fn parse_ssh_target(spec: &str) -> Result<app::ssh::SshConfig> {
         target = app::ssh::connection_url(&config),
         "SSH target parsed"
     );
+    Ok(config)
+}
+
+/// Parse the `--serial device[@baud]` flag into a `SerialConfig`, defaulting
+/// to 115200 8N1 (the CLI has no flags yet for choosing data/parity/stop
+/// bits or flow control from the command line — see `TODO.AI.md`).
+fn parse_serial_target(spec: &str) -> Result<app::serial::SerialConfig> {
+    let (device, baud_rate) = match spec.rsplit_once('@') {
+        Some((device, baud_str)) => {
+            let baud: u32 = baud_str.parse().map_err(|_| {
+                crate::support::error::CastermError::Config(format!(
+                    "--serial has an invalid baud rate: {baud_str:?}"
+                ))
+            })?;
+            (device.to_string(), baud)
+        }
+        None => (spec.to_string(), 115200),
+    };
+    if device.is_empty() {
+        return Err(crate::support::error::CastermError::Config(format!(
+            "--serial expects device[@baud], got {spec:?}"
+        )));
+    }
+    let config = app::serial::SerialConfig {
+        id: app::serial::SerialId::next(),
+        name: spec.to_string(),
+        device,
+        baud_rate,
+        ..Default::default()
+    };
+    app::serial::validate(&config)?;
     Ok(config)
 }
 
@@ -202,6 +239,7 @@ fn main() -> Result<()> {
     );
 
     let ssh_target = cli.ssh.as_deref().map(parse_ssh_target).transpose()?;
+    let serial_target = cli.serial.as_deref().map(parse_serial_target).transpose()?;
 
     // Run in detected mode
     match ui_mode {
@@ -213,6 +251,7 @@ fn main() -> Result<()> {
             cli.session.as_deref(),
             !cli.no_restore,
             ssh_target,
+            serial_target,
         ),
         UiMode::Cli => ui::cli::run(&config, &cli.command, cli.directory.as_deref()),
     }
