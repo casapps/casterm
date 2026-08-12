@@ -83,6 +83,54 @@ struct Cli {
     /// Skip restoring a saved session; always start fresh
     #[arg(long)]
     no_restore: bool,
+
+    /// Connect the starting pane over SSH instead of a local shell
+    /// (`user@host` or `user@host:port`); authenticates via ssh-agent,
+    /// matching a plain `ssh user@host` invocation with no `-i`/`-o`
+    #[arg(long, value_name = "USER@HOST[:PORT]")]
+    ssh: Option<String>,
+}
+
+/// Parse the `--ssh user@host[:port]` flag into an `SshConfig`, defaulting
+/// to ssh-agent authentication (the CLI has no flags yet for choosing a
+/// password/key/jump-host from the command line — see `TODO.AI.md`).
+fn parse_ssh_target(spec: &str) -> Result<app::ssh::SshConfig> {
+    let (username, host_port) = spec.split_once('@').ok_or_else(|| {
+        crate::support::error::CastermError::Config(format!(
+            "--ssh expects user@host[:port], got {spec:?}"
+        ))
+    })?;
+    let (host, port) = match host_port.rsplit_once(':') {
+        Some((host, port_str)) => {
+            let port: u16 = port_str.parse().map_err(|_| {
+                crate::support::error::CastermError::Config(format!(
+                    "--ssh has an invalid port: {port_str:?}"
+                ))
+            })?;
+            (host.to_string(), port)
+        }
+        None => (host_port.to_string(), 22),
+    };
+    if username.is_empty() || host.is_empty() {
+        return Err(crate::support::error::CastermError::Config(format!(
+            "--ssh expects user@host[:port], got {spec:?}"
+        )));
+    }
+    let config = app::ssh::SshConfig {
+        id: app::ssh::ConnectionId::next(),
+        name: spec.to_string(),
+        host,
+        port,
+        username: username.to_string(),
+        auth: app::ssh::AuthMethod::Agent,
+        ..Default::default()
+    };
+    app::ssh::validate(&config)?;
+    tracing::info!(
+        target = app::ssh::connection_url(&config),
+        "SSH target parsed"
+    );
+    Ok(config)
 }
 
 #[derive(Clone, Debug, Default, clap::ValueEnum)]
@@ -153,6 +201,8 @@ fn main() -> Result<()> {
         "Starting casterm"
     );
 
+    let ssh_target = cli.ssh.as_deref().map(parse_ssh_target).transpose()?;
+
     // Run in detected mode
     match ui_mode {
         UiMode::Gui => ui::gui::run(&config, &cli.command, cli.directory.as_deref()),
@@ -162,6 +212,7 @@ fn main() -> Result<()> {
             cli.directory.as_deref(),
             cli.session.as_deref(),
             !cli.no_restore,
+            ssh_target,
         ),
         UiMode::Cli => ui::cli::run(&config, &cli.command, cli.directory.as_deref()),
     }

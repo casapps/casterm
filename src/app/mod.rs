@@ -6,6 +6,7 @@ pub mod pty;
 pub mod serial;
 pub mod session;
 pub mod ssh;
+pub mod ssh_transport;
 pub mod terminal;
 pub mod vte_processor;
 

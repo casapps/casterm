@@ -63,6 +63,34 @@ conversation"). Remove each line only once fully implemented.
   — reintroduce them when multi-session list/switch commands are built
   (e.g. a `casterm session list` CLI subcommand or a TUI session picker).
 
+## Phase 4 — SSH transport (implemented)
+
+- Multi-hop jump chains — only `jump_hosts[0]` is used; additional hops in
+  the chain are not traversed.
+- Local/remote/dynamic port forwarding — `ForwardType`/`tcpip_forward` are
+  entirely unimplemented; `SshConfig.forwards` is unused data.
+- X11 forwarding and agent forwarding — `x11_forwarding`/`agent_forwarding`
+  config fields exist but are not wired to any behavior.
+- SFTP browser.
+- Hardware-key auth (GSSAPI/PKCS11) — `AuthMethod::KeyboardInteractive` and
+  `AuthMethod::Gssapi` explicitly return "not yet supported" errors.
+- Connection sharing / multiplexed control sockets.
+- Auto-reconnect — `SshConfig.reconnect_attempts`/`reconnect_delay` are
+  plain data fields with no reconnect loop behind them; the
+  `ConnectionState::Reconnecting` variant was removed as dead code rather
+  than kept unimplemented. Reintroduce the variant when auto-reconnect is
+  built.
+- Persistent SSH host directory (saved connection profiles, `casterm ssh
+  list/add/remove`) — the old `SshManager` struct (host-directory CRUD) was
+  deleted as genuinely unused scaffolding with zero callers; its two useful
+  helpers (`validate`, `connection_url`) were kept as free functions in
+  `ssh.rs`. Reintroduce a manager type when that CLI/TUI surface is built.
+- `--ssh` CLI flag is ssh-agent-auth only — no flags yet for
+  password/key-file/jump-host selection from the command line.
+- SSH panes are not part of session save/restore — `state::WindowState`/
+  `PaneState` doesn't distinguish SSH panes, so a restored session always
+  re-spawns local shells even if the original pane was SSH-backed.
+
 ## Audit findings carried forward (not yet fixed)
 
 - `aws-lc-sys` pulled into the dependency tree via `rustls`'s default

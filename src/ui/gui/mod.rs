@@ -21,5 +21,5 @@ pub fn run(config: &Config, command: &Option<String>, directory: Option<&Path>) 
     // default session naming/auto-restore (no `--session`/`--no-restore`
     // equivalents exist at the GUI entry point yet).
     tracing::warn!("GUI not yet implemented, falling back to TUI");
-    super::tui::run(config, command, directory, None, true)
+    super::tui::run(config, command, directory, None, true, None)
 }

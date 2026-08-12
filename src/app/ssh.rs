@@ -139,7 +139,6 @@ pub enum ConnectionState {
     Disconnected,
     Connecting,
     Connected,
-    Reconnecting,
     Failed,
 }
 
@@ -149,6 +148,7 @@ pub struct SshConnection {
     pub state: ConnectionState,
     /// Error message if state is Failed
     pub error: Option<String>,
+    transport: Option<super::ssh_transport::SshTransport>,
 }
 
 impl SshConnection {
@@ -157,75 +157,81 @@ impl SshConnection {
             config,
             state: ConnectionState::Disconnected,
             error: None,
+            transport: None,
         }
+    }
+
+    /// Connect and open an interactive shell, blocking until the
+    /// connection either succeeds or fails. On success, `state` becomes
+    /// `Connected`; on failure it becomes `Failed` with `error` set and
+    /// the error is also returned to the caller.
+    pub fn connect(&mut self, cols: u16, rows: u16) -> Result<()> {
+        self.state = ConnectionState::Connecting;
+        match super::ssh_transport::SshTransport::connect(&self.config, cols, rows) {
+            Ok(transport) => {
+                self.transport = Some(transport);
+                self.state = ConnectionState::Connected;
+                self.error = None;
+                Ok(())
+            }
+            Err(e) => {
+                self.state = ConnectionState::Failed;
+                self.error = Some(e.to_string());
+                Err(e)
+            }
+        }
+    }
+
+    /// Tear down the connection, discarding the transport.
+    pub fn disconnect(&mut self) {
+        self.transport = None;
+        self.state = ConnectionState::Disconnected;
+    }
+
+    /// Write keystrokes/input to the remote shell.
+    pub fn write(&self, data: &[u8]) -> Result<()> {
+        match &self.transport {
+            Some(t) => t.write(data),
+            None => Err(CastermError::Ssh("SSH connection is not open".to_string())),
+        }
+    }
+
+    /// Notify the remote PTY of a terminal resize.
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        match &self.transport {
+            Some(t) => t.resize(cols, rows),
+            None => Err(CastermError::Ssh("SSH connection is not open".to_string())),
+        }
+    }
+
+    /// Non-blocking poll for the next byte chunk (or exit notice) from the
+    /// remote shell, matching the drain pattern `ui::tui` uses for local
+    /// PTY panes.
+    pub fn try_recv(&self) -> Option<super::ssh_transport::SshMsg> {
+        self.transport.as_ref().and_then(|t| t.try_recv())
     }
 }
 
-/// SSH connection manager — maintains the host directory and connection state
-pub struct SshManager {
-    connections: Vec<SshConnection>,
+/// Validate a config — returns Ok(()) if all required fields are present.
+pub fn validate(config: &SshConfig) -> Result<()> {
+    if config.host.is_empty() {
+        return Err(CastermError::Config("SSH host cannot be empty".into()));
+    }
+    if config.username.is_empty() {
+        return Err(CastermError::Config("SSH username cannot be empty".into()));
+    }
+    if config.port == 0 {
+        return Err(CastermError::Config("SSH port must be non-zero".into()));
+    }
+    Ok(())
 }
 
-impl SshManager {
-    pub fn new() -> Self {
-        Self {
-            connections: Vec::new(),
-        }
-    }
-
-    /// Add a new connection to the host directory
-    pub fn add(&mut self, config: SshConfig) -> ConnectionId {
-        let id = config.id;
-        self.connections.push(SshConnection::new(config));
-        id
-    }
-
-    /// Remove a connection from the host directory
-    pub fn remove(&mut self, id: ConnectionId) {
-        self.connections.retain(|c| c.config.id != id);
-    }
-
-    /// Get all connections
-    pub fn list(&self) -> &[SshConnection] {
-        &self.connections
-    }
-
-    /// Find a connection by ID
-    pub fn get(&self, id: ConnectionId) -> Option<&SshConnection> {
-        self.connections.iter().find(|c| c.config.id == id)
-    }
-
-    /// Find a connection by ID (mutable)
-    pub fn get_mut(&mut self, id: ConnectionId) -> Option<&mut SshConnection> {
-        self.connections.iter_mut().find(|c| c.config.id == id)
-    }
-
-    /// Find a connection by display name
-    pub fn find_by_name(&self, name: &str) -> Option<&SshConnection> {
-        self.connections.iter().find(|c| c.config.name == name)
-    }
-
-    /// Validate a config — returns Ok(()) if all required fields are present
-    pub fn validate(config: &SshConfig) -> Result<()> {
-        if config.host.is_empty() {
-            return Err(CastermError::Config("SSH host cannot be empty".into()));
-        }
-        if config.username.is_empty() {
-            return Err(CastermError::Config("SSH username cannot be empty".into()));
-        }
-        if config.port == 0 {
-            return Err(CastermError::Config("SSH port must be non-zero".into()));
-        }
-        Ok(())
-    }
-
-    /// Build a connection URL string for display
-    pub fn connection_url(config: &SshConfig) -> String {
-        if config.port == 22 {
-            format!("{}@{}", config.username, config.host)
-        } else {
-            format!("{}@{}:{}", config.username, config.host, config.port)
-        }
+/// Build a connection URL string for display.
+pub fn connection_url(config: &SshConfig) -> String {
+    if config.port == 22 {
+        format!("{}@{}", config.username, config.host)
+    } else {
+        format!("{}@{}:{}", config.username, config.host, config.port)
     }
 }
 

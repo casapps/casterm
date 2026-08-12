@@ -28,6 +28,8 @@ use crate::app::keybindings::{KeymapResolver, Resolved};
 use crate::app::multiplexer::{Layout, PaneId, SplitDirection, Window};
 use crate::app::pty::{Pty, PtyConfig};
 use crate::app::session::{Session, SessionId};
+use crate::app::ssh::{SshConfig, SshConnection};
+use crate::app::ssh_transport::SshMsg;
 use crate::app::terminal::{TermColor, Terminal as TerminalEmulator, TerminalSize};
 use crate::app::vte_processor::VteProcessor;
 use crate::app::App;
@@ -41,19 +43,69 @@ enum PtyMsg {
     Exit,
 }
 
-/// The live state backing a single pane: its PTY, background reader
-/// channel, and its own terminal emulator/VTE parser. Each pane runs an
-/// independent shell — splitting a window multiplies this, it doesn't
-/// share one PTY across panes.
+/// A pane's live I/O backend: either a local PTY-backed shell or a remote
+/// SSH session. Both sides feed the same `PtyMsg` shape into the pane's
+/// terminal emulator/VTE parser, so the render/drain/write/resize paths
+/// don't need to know which backend a given pane is running.
+enum PaneBackend {
+    Local {
+        pty: Pty,
+        rx: mpsc::Receiver<PtyMsg>,
+    },
+    Ssh {
+        conn: Box<SshConnection>,
+    },
+}
+
+impl PaneBackend {
+    fn try_recv(&self) -> Option<PtyMsg> {
+        match self {
+            PaneBackend::Local { rx, .. } => rx.try_recv().ok(),
+            PaneBackend::Ssh { conn } => conn.try_recv().map(|msg| match msg {
+                SshMsg::Data(data) => PtyMsg::Data(data),
+                SshMsg::Exit => PtyMsg::Exit,
+            }),
+        }
+    }
+
+    fn write(&mut self, data: &[u8]) -> Result<()> {
+        match self {
+            PaneBackend::Local { pty, .. } => pty.write(data).map(|_| ()),
+            PaneBackend::Ssh { conn } => conn.write(data),
+        }
+    }
+
+    fn resize(&self, rows: u16, cols: u16) -> Result<()> {
+        match self {
+            PaneBackend::Local { pty, .. } => pty.resize(rows, cols),
+            PaneBackend::Ssh { conn } => conn.resize(cols, rows),
+        }
+    }
+
+    /// Gracefully tear down an SSH session before the pane is dropped
+    /// (local PTYs don't need this — their child process is killed by
+    /// `Pty`'s own `Drop` impl).
+    fn disconnect(&mut self) {
+        if let PaneBackend::Ssh { conn } = self {
+            conn.disconnect();
+        }
+    }
+}
+
+/// The live state backing a single pane: its I/O backend and its own
+/// terminal emulator/VTE parser. Each pane runs an independent shell or SSH
+/// session — splitting a window multiplies this, it doesn't share one
+/// backend across panes.
 struct PaneRuntime {
-    pty: Pty,
-    pty_rx: mpsc::Receiver<PtyMsg>,
+    backend: PaneBackend,
     emulator: TerminalEmulator,
     vte: VteProcessor,
     /// The working directory this pane's shell was spawned in — tracked so
     /// session save/restore (`state::PaneState.cwd`) can re-open a restored
     /// pane in the same place. Defaults to the process's own cwd when the
-    /// caller doesn't request a specific one.
+    /// caller doesn't request a specific one. SSH panes report the local
+    /// process's own cwd here since they have no local shell directory of
+    /// their own.
     cwd: PathBuf,
 }
 
@@ -149,11 +201,30 @@ fn spawn_pane_runtime(
     let vte = VteProcessor::new();
 
     Ok(PaneRuntime {
-        pty,
-        pty_rx,
+        backend: PaneBackend::Local { pty, rx: pty_rx },
         emulator,
         vte,
         cwd: resolved_cwd,
+    })
+}
+
+/// Connect an SSH-backed pane and open an interactive remote shell,
+/// blocking until the connection either succeeds or fails (same contract as
+/// `spawn_pane_runtime` for a local shell).
+fn spawn_ssh_pane_runtime(ssh_config: &SshConfig, size: TerminalSize) -> Result<PaneRuntime> {
+    let mut conn = SshConnection::new(ssh_config.clone());
+    conn.connect(size.cols, size.rows)?;
+
+    let emulator = TerminalEmulator::new(size);
+    let vte = VteProcessor::new();
+
+    Ok(PaneRuntime {
+        backend: PaneBackend::Ssh {
+            conn: Box::new(conn),
+        },
+        emulator,
+        vte,
+        cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     })
 }
 
@@ -225,13 +296,18 @@ impl TuiApp {
     /// most-recently-attached saved session), re-spawning each restored
     /// pane's shell in its saved `cwd`. `directory` seeds the first pane's
     /// cwd for a fresh session (this is what the `-d`/`--directory` CLI flag
-    /// controls).
+    /// controls). When `ssh` is set and the session is fresh, the starting
+    /// pane connects to that remote host instead of spawning a local shell
+    /// (this is what the `--ssh` CLI flag controls); restored sessions
+    /// always re-spawn local shells since SSH panes aren't part of session
+    /// persistence yet.
     fn new(
         config: Config,
         theme: ThemePalette,
         session_name: String,
         directory: Option<&Path>,
         restore: bool,
+        ssh: Option<SshConfig>,
     ) -> Result<Self> {
         let (cols, rows) = terminal_size().map_err(|e| CastermError::Tui(e.to_string()))?;
         // Reserve one row for the status bar when enabled
@@ -273,10 +349,17 @@ impl TuiApp {
         let mut panes = HashMap::new();
         if window.pane_count() == 0 {
             // Fresh session: create the one starting pane, honoring
-            // `-d`/`--directory` for its initial working directory.
+            // `-d`/`--directory` for its initial working directory, or
+            // `--ssh` to connect it to a remote host instead of a local
+            // shell.
             let pane_id = window.create_pane();
-            let cwd = directory.map(Path::to_path_buf);
-            let runtime = spawn_pane_runtime(&config, size, cwd)?;
+            let runtime = match &ssh {
+                Some(ssh_config) => spawn_ssh_pane_runtime(ssh_config, size)?,
+                None => {
+                    let cwd = directory.map(Path::to_path_buf);
+                    spawn_pane_runtime(&config, size, cwd)?
+                }
+            };
             panes.insert(pane_id, runtime);
         } else {
             // Restored session: re-spawn a shell for every saved pane in
@@ -401,7 +484,7 @@ impl TuiApp {
 
     fn write_to_pty(&mut self, data: &[u8]) -> Result<()> {
         if let Some(pane) = self.active_pane_mut() {
-            pane.pty.write(data).map(|_| ())?;
+            pane.backend.write(data)?;
         }
         Ok(())
     }
@@ -415,7 +498,7 @@ impl TuiApp {
             if let Some(pane) = self.panes.get_mut(&id) {
                 if pane.emulator.size() != size && size.cols > 0 && size.rows > 0 {
                     pane.emulator.resize(size);
-                    let _ = pane.pty.resize(size.rows, size.cols);
+                    let _ = pane.backend.resize(size.rows, size.cols);
                 }
             }
         }
@@ -427,19 +510,15 @@ impl TuiApp {
         let mut exited = Vec::new();
         for (id, pane) in self.panes.iter_mut() {
             loop {
-                match pane.pty_rx.try_recv() {
-                    Ok(PtyMsg::Data(data)) => {
+                match pane.backend.try_recv() {
+                    Some(PtyMsg::Data(data)) => {
                         pane.vte.process(&mut pane.emulator, &data);
                     }
-                    Ok(PtyMsg::Exit) => {
+                    Some(PtyMsg::Exit) => {
                         exited.push(*id);
                         break;
                     }
-                    Err(mpsc::TryRecvError::Empty) => break,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        exited.push(*id);
-                        break;
-                    }
+                    None => break,
                 }
             }
         }
@@ -472,6 +551,9 @@ impl TuiApp {
     }
 
     fn close_pane(&mut self, id: PaneId) {
+        if let Some(pane) = self.panes.get_mut(&id) {
+            pane.backend.disconnect();
+        }
         self.panes.remove(&id);
         self.window_mut().remove_pane(id);
         if self.window().pane_count() == 0 {
@@ -1082,6 +1164,7 @@ pub fn run(
     directory: Option<&Path>,
     session: Option<&str>,
     restore: bool,
+    ssh: Option<SshConfig>,
 ) -> Result<()> {
     tracing::info!("Starting TUI mode");
 
@@ -1106,6 +1189,7 @@ pub fn run(
         directory,
         session,
         restore,
+        ssh,
     );
 
     disable_raw_mode().map_err(|e| CastermError::Tui(e.to_string()))?;
@@ -1125,9 +1209,10 @@ fn run_app<B: Backend + std::io::Write>(
     directory: Option<&Path>,
     session: Option<&str>,
     restore: bool,
+    ssh: Option<SshConfig>,
 ) -> Result<()> {
     let session_name = session.unwrap_or("main").to_string();
-    let mut app = TuiApp::new(config, theme, session_name, directory, restore)?;
+    let mut app = TuiApp::new(config, theme, session_name, directory, restore, ssh)?;
 
     // Propagate the window's own name (and id, for multi-window
     // disambiguation once real multi-window sessions land) into the host
