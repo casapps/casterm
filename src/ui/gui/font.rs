@@ -59,6 +59,43 @@ pub fn find_monospace_font_path() -> Option<PathBuf> {
         }
     }
 
+    // Before the generic "mono"-named-file walk, look for a file matching
+    // one of this platform's preferred font family names (e.g. "JetBrains
+    // Mono" on Linux, "Menlo" on macOS) — a closer match to what the OS
+    // ships by default than an arbitrary monospace font.
+    let preferred_names: Vec<String> = crate::platform::Platform::default_fonts()
+        .iter()
+        .map(|n| n.to_ascii_lowercase().replace([' ', '-', '_'], ""))
+        .collect();
+    for dir in FONT_SEARCH_DIRS {
+        for entry in WalkDir::new(dir)
+            .max_depth(6)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+                continue;
+            };
+            if !matches!(ext.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let normalized = stem.to_ascii_lowercase().replace([' ', '-', '_'], "");
+            if preferred_names
+                .iter()
+                .any(|p| normalized.contains(p.as_str()))
+            {
+                return Some(path.to_path_buf());
+            }
+        }
+    }
+
     let mut any_font: Option<PathBuf> = None;
     for dir in FONT_SEARCH_DIRS {
         for entry in WalkDir::new(dir)

@@ -17,7 +17,7 @@ use crate::app::pane_runtime::{spawn_pane_runtime, PaneRuntime, PtyMsg};
 use crate::app::terminal::TerminalSize;
 use crate::config::{Config, ThemePalette};
 use crate::support::error::{CastermError, Result};
-use crate::ui::render_model::{encode_key, resolve_grid, Rgb};
+use crate::ui::render_model::{cursor_style, encode_key, resolve_grid, Rgb};
 
 use super::input::{to_key_code, to_key_modifiers};
 use super::renderer::{Renderer, Selection};
@@ -145,6 +145,8 @@ impl WindowState {
         let (bgr, bgg, bgb) = self.theme.bg_rgb();
         let (sbr, sbg, sbb) = self.theme.selection_bg_rgb();
         let (sfr, sfg, sfb) = self.theme.selection_fg_rgb();
+        let (cr, cg, cb) = self.theme.cursor_rgb();
+        let style = cursor_style(&self.pane.emulator);
         self.renderer.render(
             &cells,
             size.cols,
@@ -153,6 +155,8 @@ impl WindowState {
             self.selection,
             Rgb(sbr, sbg, sbb),
             Rgb(sfr, sfg, sfb),
+            style,
+            Rgb(cr, cg, cb),
         )
     }
 

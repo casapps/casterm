@@ -120,16 +120,6 @@ impl Pty {
         self.reader.take()
     }
 
-    /// Read data from the PTY. Returns an error if the reader has been taken.
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        match &mut self.reader {
-            Some(r) => r.read(buf).map_err(|e| CastermError::Pty(e.to_string())),
-            None => Err(CastermError::Pty(
-                "PTY reader has been moved to background thread".to_string(),
-            )),
-        }
-    }
-
     /// Write data to the PTY
     pub fn write(&mut self, data: &[u8]) -> Result<usize> {
         self.writer
@@ -141,13 +131,6 @@ impl Pty {
     pub fn flush(&mut self) -> Result<()> {
         self.writer
             .flush()
-            .map_err(|e| CastermError::Pty(e.to_string()))
-    }
-
-    /// Check if the child process has exited
-    pub fn try_wait(&mut self) -> Result<Option<portable_pty::ExitStatus>> {
-        self.child
-            .try_wait()
             .map_err(|e| CastermError::Pty(e.to_string()))
     }
 
@@ -163,5 +146,14 @@ impl Pty {
         self.child
             .kill()
             .map_err(|e| CastermError::Pty(e.to_string()))
+    }
+}
+
+impl Drop for Pty {
+    /// Kill and reap the child shell so a closed pane never leaves an
+    /// orphaned process behind.
+    fn drop(&mut self) {
+        let _ = self.kill();
+        let _ = self.wait();
     }
 }

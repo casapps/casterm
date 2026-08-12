@@ -8,7 +8,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::terminal::{TermColor, Terminal as TerminalEmulator};
+use crate::app::terminal::{CursorStyle, TermColor, Terminal as TerminalEmulator};
 use crate::config::ThemePalette;
 
 /// 24-bit RGB color, already resolved from a `TermColor` + theme palette.
@@ -30,6 +30,10 @@ pub struct ResolvedCell {
     pub blink: bool,
     pub hidden: bool,
     pub strikethrough: bool,
+    /// True for the single cell currently under the (visible) cursor.
+    /// `ui::gui` uses this to shape the cursor quad per `CursorStyle`
+    /// instead of always filling the whole cell.
+    pub is_cursor: bool,
 }
 
 /// Resolve a `TermColor` to a concrete `Rgb`, using the theme palette for
@@ -78,6 +82,14 @@ fn xterm_256_rgb(index: u8) -> (u8, u8, u8) {
     (r, g, b)
 }
 
+/// Read back the emulator's current cursor shape (block/underline/bar), as
+/// set at runtime via DECSCUSR (CSI `q`). GUI-only consumer: `ui::gui`
+/// varies the cursor quad's geometry per style; `ui::tui` has no partial-
+/// cell drawing primitive and always renders a full-cell swap.
+pub fn cursor_style(term: &TerminalEmulator) -> CursorStyle {
+    term.cursor_style()
+}
+
 /// Resolve the full visible grid for one frame into row-major
 /// `ResolvedCell`s (`size.rows * size.cols` entries, matching
 /// `emulator.size()`).
@@ -121,6 +133,7 @@ pub fn resolve_grid(emulator: &TerminalEmulator, theme: &ThemePalette) -> Vec<Re
                 blink: cell.attrs.blink,
                 hidden: cell.attrs.hidden,
                 strikethrough: cell.attrs.strikethrough,
+                is_cursor,
             });
         }
     }
@@ -255,7 +268,8 @@ mod tests {
     #[test]
     fn resolve_grid_marks_visible_cursor() {
         let mut term = TerminalEmulator::new(TerminalSize { cols: 4, rows: 2 });
-        term.write_str("ab");
+        term.write_char('a');
+        term.write_char('b');
         term.set_cursor(0, 1);
         let theme = ThemePalette::default();
         let cells = resolve_grid(&term, &theme);

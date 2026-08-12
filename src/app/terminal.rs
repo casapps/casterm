@@ -60,13 +60,6 @@ pub struct Cell {
 }
 
 impl Cell {
-    pub fn new(char: char) -> Self {
-        Self {
-            char,
-            attrs: CellAttrs::default(),
-        }
-    }
-
     pub fn with_attrs(char: char, attrs: CellAttrs) -> Self {
         Self { char, attrs }
     }
@@ -248,13 +241,6 @@ impl Terminal {
                 }
             }
             _ => {}
-        }
-    }
-
-    /// Write a string
-    pub fn write_str(&mut self, s: &str) {
-        for c in s.chars() {
-            self.write_char(c);
         }
     }
 

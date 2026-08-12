@@ -13,6 +13,7 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
+use crate::app::terminal::CursorStyle;
 use crate::support::error::{CastermError, Result};
 use crate::ui::render_model::{ResolvedCell, Rgb};
 
@@ -472,8 +473,10 @@ impl Renderer {
 
     /// Draw one full-grid frame: `cells` is `resolve_grid`'s row-major
     /// output, `cols`/`rows` its dimensions, `bg` the theme default
-    /// background (used for the surface clear color), and `selection` an
-    /// optional highlighted cell range.
+    /// background (used for the surface clear color), `selection` an
+    /// optional highlighted cell range, `cursor_style` the DECSCUSR shape
+    /// to draw for the cell flagged `is_cursor`, and `cursor_color` the
+    /// fill used for that shape's non-block geometry.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -484,6 +487,8 @@ impl Renderer {
         selection: Option<Selection>,
         selection_bg: Rgb,
         selection_fg: Rgb,
+        cursor_style: CursorStyle,
+        cursor_color: Rgb,
     ) -> Result<()> {
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -511,7 +516,30 @@ impl Renderer {
 
                 let selected = selection.is_some_and(|s| in_selection(s, row, col));
                 let cell_bg = if selected { selection_bg } else { cell.bg };
-                if cell_bg != bg {
+                if cell.is_cursor && !selected {
+                    let (qy0, qh, qx0, qw) = match cursor_style {
+                        CursorStyle::Block => (y0, self.cell_h, x0, self.cell_w),
+                        CursorStyle::Underline => {
+                            let h = self.cell_h * 0.15;
+                            (y0 + self.cell_h - h, h, x0, self.cell_w)
+                        }
+                        CursorStyle::Bar => {
+                            let w = self.cell_w * 0.12;
+                            (y0, self.cell_h, x0, w)
+                        }
+                    };
+                    push_quad(
+                        &mut vertices,
+                        qx0,
+                        qy0,
+                        qw,
+                        qh,
+                        [0.0, 0.0],
+                        [0.0, 0.0],
+                        rgb_to_f32(cursor_color, 1.0),
+                        0.0,
+                    );
+                } else if cell_bg != bg {
                     push_quad(
                         &mut vertices,
                         x0,

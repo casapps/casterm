@@ -2,7 +2,7 @@
 
 use rust_embed::Embed;
 
-use crate::config::ThemePalette;
+use crate::config::{ThemeCatalog, ThemePalette};
 use crate::support::error::{CastermError, Result};
 
 /// Embedded asset files
@@ -34,8 +34,12 @@ impl Assets {
 pub fn load_theme(name: &str) -> Result<ThemePalette> {
     let path = format!("themes/{}.toml", name);
 
-    let content = Assets::get_string(&path)
-        .ok_or_else(|| CastermError::Theme(format!("Theme '{}' not found", name)))?;
+    let content = Assets::get_string(&path).ok_or_else(|| {
+        CastermError::Theme(format!(
+            "Theme '{name}' not found (valid themes: {})",
+            ThemeCatalog::all_themes().join(", ")
+        ))
+    })?;
 
     toml::from_str(&content)
         .map_err(|e| CastermError::Theme(format!("Failed to parse theme '{}': {}", name, e)))
@@ -52,13 +56,27 @@ pub fn list_themes() -> Vec<String> {
         .collect()
 }
 
-/// Get the default configuration file contents
-pub fn default_config() -> Option<String> {
-    Assets::get_string("config/default.yaml")
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Get an icon by name
-pub fn get_icon(name: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
-    let path = format!("icons/{}.png", name);
-    Assets::get_bytes(&path)
+    /// Backs `--list-themes` (see `main.rs`): every embedded `themes/*.toml`
+    /// file must show up as a bare theme name, and every one of them must
+    /// actually load through `load_theme()`.
+    #[test]
+    fn list_themes_returns_loadable_theme_names() {
+        let names = list_themes();
+
+        assert!(!names.is_empty());
+        assert!(names.contains(&"dracula".to_string()));
+        for name in &names {
+            assert!(load_theme(name).is_ok(), "theme '{name}' failed to load");
+        }
+    }
+
+    #[test]
+    fn load_theme_reports_valid_names_in_error_for_unknown_theme() {
+        let err = load_theme("not-a-real-theme").unwrap_err();
+        assert!(err.to_string().contains("dracula"));
+    }
 }

@@ -199,8 +199,17 @@ impl ThemeCatalog {
     /// For dual-mode themes, appends _dark or _light based on mode.
     /// For single-mode themes, returns the name as-is.
     pub fn resolve_theme_name(name: &str, mode: ThemeMode) -> String {
+        // Fall back to the default theme when the configured name isn't one
+        // of the built-in catalog entries, rather than resolving a suffixed
+        // name that will fail to load later.
+        let name = if Self::is_valid_theme(name) {
+            name
+        } else {
+            "dracula"
+        };
+
         let effective_mode = match mode {
-            ThemeMode::Auto => detect_system_theme(),
+            ThemeMode::Auto => detect_terminal_background().unwrap_or_else(detect_system_theme),
             m => m,
         };
 
@@ -338,4 +347,58 @@ pub fn detect_terminal_background() -> Option<ThemeMode> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_valid_theme_accepts_catalog_entries_and_rejects_unknown_names() {
+        assert!(ThemeCatalog::is_valid_theme("dracula"));
+        assert!(!ThemeCatalog::is_valid_theme("not-a-real-theme"));
+        assert!(!ThemeCatalog::is_valid_theme(""));
+    }
+
+    /// An unrecognized configured theme name falls back to the default
+    /// theme ("dracula") instead of resolving a `_dark`/`_light`-suffixed
+    /// name that would fail to load later. `ThemeMode::Dark` is used here
+    /// (not `Auto`) so the test doesn't depend on terminal/OS detection.
+    #[test]
+    fn resolve_theme_name_falls_back_to_default_for_unknown_name() {
+        assert_eq!(
+            ThemeCatalog::resolve_theme_name("not-a-real-theme", ThemeMode::Dark),
+            "dracula"
+        );
+    }
+
+    #[test]
+    fn resolve_theme_name_keeps_valid_single_mode_name_as_is() {
+        assert_eq!(
+            ThemeCatalog::resolve_theme_name("dracula", ThemeMode::Dark),
+            "dracula"
+        );
+    }
+
+    /// Both `TERMINAL_BACKGROUND`-override and `COLORFGBG`-fallback paths,
+    /// in one test (rather than split across parallel `#[test]` fns) since
+    /// both mutate the same process-global env vars and would otherwise
+    /// race against each other under cargo's default parallel test runner.
+    #[test]
+    fn detect_terminal_background_checks_override_then_colorfgbg() {
+        std::env::remove_var("TERMINAL_BACKGROUND");
+        std::env::remove_var("COLORFGBG");
+        assert_eq!(detect_terminal_background(), None);
+
+        // TERMINAL_BACKGROUND takes priority over COLORFGBG when both are set.
+        std::env::set_var("TERMINAL_BACKGROUND", "light");
+        std::env::set_var("COLORFGBG", "15;0");
+        assert_eq!(detect_terminal_background(), Some(ThemeMode::Light));
+
+        // Falls back to COLORFGBG when TERMINAL_BACKGROUND is unset.
+        std::env::remove_var("TERMINAL_BACKGROUND");
+        assert_eq!(detect_terminal_background(), Some(ThemeMode::Dark));
+
+        std::env::remove_var("COLORFGBG");
+    }
 }

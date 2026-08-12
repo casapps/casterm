@@ -26,10 +26,7 @@ use window::GuiApp;
 pub fn run(config: &Config, _command: &Option<String>, directory: Option<&Path>) -> Result<()> {
     tracing::info!("Starting GUI mode");
 
-    let wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
-    let x11 = std::env::var("DISPLAY").is_ok();
-
-    if !wayland && !x11 && !cfg!(windows) && !cfg!(target_os = "macos") {
+    if !crate::platform::Platform::has_display() {
         return Err(CastermError::NoDisplay);
     }
 

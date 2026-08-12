@@ -41,9 +41,6 @@ pub enum CastermError {
     #[error("No display available")]
     NoDisplay,
 
-    #[error("Unsupported platform: {0}")]
-    UnsupportedPlatform(String),
-
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
@@ -56,7 +53,10 @@ impl From<figment::Error> for CastermError {
 
 impl From<serde_json::Error> for CastermError {
     fn from(e: serde_json::Error) -> Self {
-        CastermError::Config(e.to_string())
+        // serde_json is only used for session-state (de)serialization
+        // (see `state::mod`'s `SessionState` save/load), so a conversion
+        // failure is a session error, not a generic configuration one.
+        CastermError::Session(e.to_string())
     }
 }
 

@@ -32,3 +32,14 @@ fn test_cli_mode() {
         .success()
         .stdout(predicate::str::contains("CASTERM"));
 }
+
+/// Test that --list-themes prints the built-in theme catalog and exits
+/// before doing anything else (no UI mode detection, no config load).
+#[test]
+fn test_list_themes_flag() {
+    let mut cmd = Command::cargo_bin("casterm").unwrap();
+    cmd.arg("--list-themes");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("dracula"));
+}

@@ -5,8 +5,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::platform::Platform;
-use crate::support::error::{CastermError, Result};
+use crate::support::error::Result;
 
 /// Persistent session state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,12 +40,10 @@ pub struct StateManager {
 }
 
 impl StateManager {
-    /// Create a new state manager backed by the platform's standard data
-    /// directory (`Platform::data_dir()/sessions`).
+    /// Create a new state manager backed by the standard data directory
+    /// (`config::Config::data_dir()/sessions`).
     pub fn new() -> Result<Self> {
-        let state_dir = Platform::data_dir()
-            .ok_or_else(|| CastermError::Config("Cannot determine data directory".into()))?
-            .join("sessions");
+        let state_dir = crate::config::Config::data_dir().join("sessions");
         Self::with_dir(state_dir)
     }
 
@@ -123,43 +120,6 @@ impl StateManager {
     /// Get the state directory path
     pub fn state_dir(&self) -> &PathBuf {
         &self.state_dir
-    }
-}
-
-/// History state for commands
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct HistoryState {
-    pub commands: Vec<String>,
-    pub max_size: usize,
-}
-
-impl HistoryState {
-    pub fn new(max_size: usize) -> Self {
-        Self {
-            commands: Vec::new(),
-            max_size,
-        }
-    }
-
-    pub fn add(&mut self, command: impl Into<String>) {
-        let command = command.into();
-        // Remove duplicates
-        self.commands.retain(|c| c != &command);
-        self.commands.push(command);
-        // Trim to max size
-        while self.commands.len() > self.max_size {
-            self.commands.remove(0);
-        }
-    }
-
-    pub fn search<'a, 'b>(
-        &'a self,
-        prefix: &'b str,
-    ) -> impl Iterator<Item = &'a String> + use<'a, 'b> {
-        self.commands
-            .iter()
-            .rev()
-            .filter(move |c| c.starts_with(prefix))
     }
 }
 

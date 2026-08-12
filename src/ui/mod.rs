@@ -61,10 +61,6 @@ impl Env {
         std::env::var(name).is_ok()
     }
 
-    fn has_any(names: &[&str]) -> bool {
-        names.iter().any(|n| Self::has(n))
-    }
-
     fn is(name: &str, value: &str) -> bool {
         std::env::var(name).map(|v| v == value).unwrap_or(false)
     }
@@ -81,13 +77,7 @@ pub fn detect_ui_mode(_config: &Config) -> UiMode {
     let caps = Capabilities::detect();
 
     // Check for remote shell indicators
-    let remote_shell = Env::has_any(&[
-        "SSH_CONNECTION",
-        "SSH_CLIENT",
-        "SSH_TTY",
-        "MOSH_IP",
-        "MOSH_KEY",
-    ]);
+    let remote_shell = crate::platform::Platform::is_remote_session();
 
     // Check for display availability
     let display_available = Env::has("WAYLAND_DISPLAY")

@@ -81,9 +81,10 @@ impl Config {
         let mut paths = Vec::new();
 
         // XDG config
-        if let Some(config_dir) = dirs::config_dir() {
-            paths.push(config_dir.join("casapps/casterm/config.yml"));
-            paths.push(config_dir.join("casapps/casterm/config.yaml"));
+        if dirs::config_dir().is_some() {
+            let config_dir = Self::config_dir();
+            paths.push(config_dir.join("config.yml"));
+            paths.push(config_dir.join("config.yaml"));
         }
 
         // Home directory

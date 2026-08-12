@@ -367,9 +367,12 @@ impl Window {
 }
 
 /// A single pane within a window
+///
+/// Pure layout-tree bookkeeping (id/title) — per-pane terminal runtime state
+/// (emulator, PTY/SSH/serial backend, reader thread) lives in
+/// `app::pane_runtime::PaneRuntime` instead.
 pub struct Pane {
     id: PaneId,
-    terminal: Option<super::terminal::Terminal>,
     title: String,
 }
 
@@ -377,7 +380,6 @@ impl Pane {
     pub fn new() -> Self {
         Self {
             id: PaneId::new(),
-            terminal: None,
             title: String::new(),
         }
     }
@@ -392,18 +394,6 @@ impl Pane {
 
     pub fn set_title(&mut self, title: impl Into<String>) {
         self.title = title.into();
-    }
-
-    pub fn terminal(&self) -> Option<&super::terminal::Terminal> {
-        self.terminal.as_ref()
-    }
-
-    pub fn terminal_mut(&mut self) -> Option<&mut super::terminal::Terminal> {
-        self.terminal.as_mut()
-    }
-
-    pub fn set_terminal(&mut self, terminal: super::terminal::Terminal) {
-        self.terminal = Some(terminal);
     }
 }
 

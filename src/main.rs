@@ -95,6 +95,10 @@ struct Cli {
     /// `device@baud`, e.g. `/dev/ttyUSB0@9600` — defaults to 115200 8N1)
     #[arg(long, value_name = "DEVICE[@BAUD]")]
     serial: Option<String>,
+
+    /// List all built-in theme names and exit
+    #[arg(long)]
+    list_themes: bool,
 }
 
 /// Parse the `--ssh user@host[:port]` flag into an `SshConfig`, defaulting
@@ -205,6 +209,15 @@ fn apply_color_mode(mode: &ColorMode) {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.list_themes {
+        let mut names = assets::list_themes();
+        names.sort();
+        for name in names {
+            println!("{name}");
+        }
+        return Ok(());
+    }
 
     apply_color_mode(&cli.color);
 

@@ -61,7 +61,10 @@ impl PaneBackend {
 
     pub fn write(&mut self, data: &[u8]) -> Result<()> {
         match self {
-            PaneBackend::Local { pty, .. } => pty.write(data).map(|_| ()),
+            PaneBackend::Local { pty, .. } => {
+                pty.write(data)?;
+                pty.flush()
+            }
             PaneBackend::Ssh { conn } => conn.write(data),
             PaneBackend::Serial { conn } => conn.write(data),
         }
@@ -114,6 +117,11 @@ pub fn spawn_pane_runtime(
     size: TerminalSize,
     cwd: Option<PathBuf>,
 ) -> Result<PaneRuntime> {
+    if size.cols == 0 || size.rows == 0 {
+        return Err(CastermError::Terminal(
+            "terminal size must be non-zero".to_string(),
+        ));
+    }
     let shell = config
         .shell
         .path
@@ -209,6 +217,11 @@ pub fn spawn_pane_runtime(
 /// blocking until the connection either succeeds or fails (same contract as
 /// `spawn_pane_runtime` for a local shell).
 pub fn spawn_ssh_pane_runtime(ssh_config: &SshConfig, size: TerminalSize) -> Result<PaneRuntime> {
+    if size.cols == 0 || size.rows == 0 {
+        return Err(CastermError::Terminal(
+            "terminal size must be non-zero".to_string(),
+        ));
+    }
     let mut conn = SshConnection::new(ssh_config.clone());
     conn.connect(size.cols, size.rows)?;
 
@@ -232,6 +245,11 @@ pub fn spawn_serial_pane_runtime(
     serial_config: &SerialConfig,
     size: TerminalSize,
 ) -> Result<PaneRuntime> {
+    if size.cols == 0 || size.rows == 0 {
+        return Err(CastermError::Terminal(
+            "terminal size must be non-zero".to_string(),
+        ));
+    }
     let mut conn = SerialConnection::new(serial_config.clone());
     conn.connect()?;
 
@@ -246,4 +264,50 @@ pub fn spawn_serial_pane_runtime(
         vte,
         cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A zero `cols` or `rows` must be rejected before any backend resource
+    /// (shell process, network socket, serial device) is touched — a 0x0
+    /// terminal has no cell grid to render into.
+    #[test]
+    fn spawn_pane_runtime_rejects_zero_size() {
+        let config = Config::default();
+        let zero_cols = TerminalSize { cols: 0, rows: 24 };
+        let zero_rows = TerminalSize { cols: 80, rows: 0 };
+
+        assert!(matches!(
+            spawn_pane_runtime(&config, zero_cols, None),
+            Err(CastermError::Terminal(_))
+        ));
+        assert!(matches!(
+            spawn_pane_runtime(&config, zero_rows, None),
+            Err(CastermError::Terminal(_))
+        ));
+    }
+
+    #[test]
+    fn spawn_ssh_pane_runtime_rejects_zero_size() {
+        let ssh_config = SshConfig::default();
+        let zero = TerminalSize { cols: 0, rows: 0 };
+
+        assert!(matches!(
+            spawn_ssh_pane_runtime(&ssh_config, zero),
+            Err(CastermError::Terminal(_))
+        ));
+    }
+
+    #[test]
+    fn spawn_serial_pane_runtime_rejects_zero_size() {
+        let serial_config = SerialConfig::default();
+        let zero_cols = TerminalSize { cols: 0, rows: 24 };
+
+        assert!(matches!(
+            spawn_serial_pane_runtime(&serial_config, zero_cols),
+            Err(CastermError::Terminal(_))
+        ));
+    }
 }

@@ -7,14 +7,12 @@ use super::terminal::{Cell, CellAttrs, CursorStyle, TermColor, Terminal};
 /// VTE-based terminal processor
 pub struct VteProcessor {
     parser: Parser,
-    pending: Vec<u8>,
 }
 
 impl VteProcessor {
     pub fn new() -> Self {
         Self {
             parser: Parser::new(),
-            pending: Vec::new(),
         }
     }
 
@@ -173,11 +171,7 @@ impl<'a> Perform for Performer<'a> {
                         }
                     }
                     2 => {
-                        for col in 0..size.cols {
-                            self.terminal
-                                .grid_mut()
-                                .set(cursor.row, col, Cell::default());
-                        }
+                        self.terminal.grid_mut().clear_row(cursor.row);
                     }
                     _ => {}
                 }
@@ -290,5 +284,49 @@ impl<'a> Performer<'a> {
         }
 
         self.terminal.set_attrs(attrs);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::terminal::TerminalSize;
+
+    /// `CSI 2 K` (erase entire line) must clear every column of the
+    /// cursor's row, not just the columns before/after the cursor — this
+    /// now goes through `Grid::clear_row` instead of a per-column loop.
+    #[test]
+    fn csi_2k_clears_the_entire_row() {
+        let mut terminal = Terminal::new(TerminalSize { cols: 10, rows: 3 });
+        let mut vte = VteProcessor::new();
+
+        vte.process(&mut terminal, b"row of text");
+        terminal.set_cursor(0, 4);
+        vte.process(&mut terminal, b"\x1b[2K");
+
+        for col in 0..10 {
+            let cell = terminal.grid().get(0, col).unwrap();
+            assert_eq!(cell.char, '\0', "column {col} was not cleared");
+        }
+    }
+
+    /// `CSI 0 K` (erase from cursor to end of line) leaves columns before
+    /// the cursor untouched — regression guard for the sibling `2K` arm.
+    #[test]
+    fn csi_0k_only_clears_from_cursor_onward() {
+        // 2 rows (not 1) so writing exactly `cols` characters wraps to a
+        // second row instead of scrolling row 0 into history and leaving
+        // it blank — this test asserts on row 0's post-write content.
+        let mut terminal = Terminal::new(TerminalSize { cols: 10, rows: 2 });
+        let mut vte = VteProcessor::new();
+
+        vte.process(&mut terminal, b"abcdefghij");
+        terminal.set_cursor(0, 5);
+        vte.process(&mut terminal, b"\x1b[K");
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().char, 'a');
+        assert_eq!(terminal.grid().get(0, 4).unwrap().char, 'e');
+        assert_eq!(terminal.grid().get(0, 5).unwrap().char, '\0');
+        assert_eq!(terminal.grid().get(0, 9).unwrap().char, '\0');
     }
 }

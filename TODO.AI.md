@@ -49,13 +49,15 @@ conversation"). Remove each line only once fully implemented.
   same on-disk session file) — not implemented; `StateManager` has no
   file-lock/advisory-lock around `save_session`/`remove_session`.
 - `app::multiplexer::Pane.terminal` field and its `terminal()`/
-  `terminal_mut()`/`set_terminal()` accessors are unused dead code left
-  over from Phase 2 (not touched during Phase 3) — needs either genuine
-  wiring into the render/VTE path or deletion.
-- `state::HistoryState` (struct + `new`/`add`/`search`) is unused
-  scaffolding for a command-history subsystem that was never part of the
-  6-phase plan — needs either a real caller (e.g. TUI command palette) or
-  deletion.
+  `terminal_mut()`/`set_terminal()` accessors were deleted as dead code
+  left over from Phase 2 — superseded by `app::pane_runtime::PaneRuntime`,
+  which now owns real per-pane terminal state; `multiplexer::Pane` is pure
+  layout-tree bookkeeping (id/title) with no other live callers of the
+  removed accessors.
+- `state::HistoryState` (struct + `new`/`add`/`search`) was deleted as
+  unused scaffolding for a command-history subsystem that was never part
+  of the 6-phase plan; reintroduce with a real caller (e.g. TUI command
+  palette) if that feature is scoped in later.
 - `SessionManager`'s API surface was trimmed to only what single-session
   MVP scope uses (`new`, `insert`, `active`, `active_mut`, `remove`).
   `create`, `get`, `get_mut`, `find_by_name`, `list`, and `set_active` were
@@ -155,6 +157,24 @@ conversation"). Remove each line only once fully implemented.
   `apk` but not preinstalled), so this test can't assert a real device is
   always obtainable in CI.
 
+## Cross-cutting
+
+- GUI window icon — `assets::get_icon()` was deleted as dead code with no
+  backing asset; reintroduce once an actual icon file is committed to
+  `assets/icons/` and wired to `winit::window::Window::set_window_icon`.
+- `assets/config/default.yaml` schema has drifted from `config::Config`'s
+  actual field names (e.g. `shell.program`/`shell.env`/`shell.login_shell`
+  vs. the real `ShellConfig{path, args, login}`) — `assets::default_config()`
+  was deleted as dead code rather than wired in with a broken schema. Needs
+  a decision: fix `default.yaml` to match `Config`'s real shape and wire it
+  into `Config::load()`'s no-config-found fallback, or delete the file
+  entirely if it's not meant to be consumed.
+- Linux-specific display-server/systemd detection (`platform::linux::Linux`)
+  was deleted as genuinely unused scaffolding with zero callers —
+  reintroduce if a future feature needs to distinguish Wayland vs. X11
+  (e.g. clipboard backend selection) or gate systemd-specific integration
+  (e.g. a user service unit).
+
 ## Audit findings carried forward (not yet fixed)
 
 - `aws-lc-sys` pulled into the dependency tree via `rustls`'s default
@@ -182,7 +202,3 @@ conversation"). Remove each line only once fully implemented.
   Needs a user decision on whether this is intentional or an oversight.
 - `serde_yaml = "0.9"` is deprecated/unmaintained — needs a migration
   target decision (e.g. `serde_yaml_ng`, `serde_norway`); not urgent.
-- `src/platform/mod.rs`'s own `cache_dir()` (lines 32-33) lacks the
-  `casapps/` org prefix present in `config::Config::cache_dir()` —
-  inconsistency between the two cache-dir implementations, needs
-  reconciling.
