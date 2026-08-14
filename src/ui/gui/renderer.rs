@@ -13,6 +13,7 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
+use crate::app::file_browser::FileBrowserState;
 use crate::app::terminal::CursorStyle;
 use crate::support::error::{CastermError, Result};
 use crate::ui::render_model::{ResolvedCell, Rgb};
@@ -478,6 +479,7 @@ impl Renderer {
     /// to draw for the cell flagged `is_cursor`, and `cursor_color` the
     /// fill used for that shape's non-block geometry.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         cells: &[ResolvedCell],
@@ -489,6 +491,8 @@ impl Renderer {
         selection_fg: Rgb,
         cursor_style: CursorStyle,
         cursor_color: Rgb,
+        term_x_offset: f32,
+        panel: Option<FileBrowserPanelView<'_>>,
     ) -> Result<()> {
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -511,7 +515,7 @@ impl Renderer {
                 let Some(cell) = cells.get(idx) else {
                     continue;
                 };
-                let x0 = col as f32 * self.cell_w;
+                let x0 = term_x_offset + col as f32 * self.cell_w;
                 let y0 = row as f32 * self.cell_h;
 
                 let selected = selection.is_some_and(|s| in_selection(s, row, col));
@@ -576,6 +580,10 @@ impl Renderer {
             }
         }
 
+        if let Some(panel) = &panel {
+            self.push_file_browser_panel(&mut vertices, panel);
+        }
+
         let vertex_bytes = vertices_to_bytes(&vertices);
         let vertex_buffer = self
             .device
@@ -623,6 +631,133 @@ impl Renderer {
         frame.present();
         Ok(())
     }
+
+    /// Emit the file-browser panel's quads: a solid highlight quad behind
+    /// the selected row, plus one glyph-atlas quad per visible non-space
+    /// character. Mirrors `ui::tui::file_browser::FileBrowserPanel`'s row
+    /// layout (depth indent, `▼`/`▶` marker, selected-row highlight) but as
+    /// screen-space quads instead of ratatui buffer cells; the panel's
+    /// unselected background relies on the surface clear color already
+    /// matching the theme background (see `render`'s clear-color setup).
+    fn push_file_browser_panel(&mut self, out: &mut Vec<Vertex>, panel: &FileBrowserPanelView<'_>) {
+        let visible_rows = (self.config.height as f32 / self.cell_h).floor().max(0.0) as usize;
+        let max_chars = (panel.width / self.cell_w).floor().max(0.0) as usize;
+
+        for row_layout in file_browser_panel_rows(panel.state, visible_rows, max_chars) {
+            let y0 = row_layout.visible_row as f32 * self.cell_h;
+            if row_layout.is_selected {
+                push_quad(
+                    out,
+                    panel.x,
+                    y0,
+                    panel.width,
+                    self.cell_h,
+                    [0.0, 0.0],
+                    [0.0, 0.0],
+                    rgb_to_f32(panel.selected_bg, 1.0),
+                    0.0,
+                );
+            }
+
+            let fg = if row_layout.is_selected {
+                panel.selected_fg
+            } else {
+                panel.fg
+            };
+
+            for (col, ch) in row_layout.label.chars().enumerate() {
+                if ch == ' ' {
+                    continue;
+                }
+                let Some(glyph) = self.atlas.glyph(ch, &self.queue) else {
+                    continue;
+                };
+                let gx = panel.x + col as f32 * self.cell_w + glyph.left.max(0.0);
+                let gy = y0 + (self.ascent - glyph.height - glyph.top);
+                push_quad(
+                    out,
+                    gx,
+                    gy,
+                    glyph.width,
+                    glyph.height,
+                    glyph.uv_min,
+                    glyph.uv_max,
+                    rgb_to_f32(fg, 1.0),
+                    1.0,
+                );
+            }
+        }
+    }
+}
+
+/// One laid-out row of the file-browser panel, ready to turn into quads:
+/// its position among the *visible* (scrolled-into-view) rows, whether it's
+/// the selected entry, and its already-indented/marked/truncated label
+/// text. Split out from `Renderer::push_file_browser_panel` as a pure
+/// function (no `wgpu` types) so the row layout — indent-by-depth,
+/// `▼`/`▶` marker, scroll-offset windowing, width truncation — is
+/// unit-testable without a GPU device.
+struct FileBrowserRowLayout {
+    visible_row: usize,
+    is_selected: bool,
+    label: String,
+}
+
+fn file_browser_panel_rows(
+    state: &FileBrowserState,
+    visible_rows: usize,
+    max_chars: usize,
+) -> Vec<FileBrowserRowLayout> {
+    let offset = state.scroll_offset();
+    let selected = state.selected_index();
+
+    state
+        .entries()
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(visible_rows)
+        .map(|(row, entry)| {
+            let marker = if entry.is_dir {
+                if state.is_expanded(&entry.path) {
+                    "▼ "
+                } else {
+                    "▶ "
+                }
+            } else {
+                "  "
+            };
+            let name = entry
+                .path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?");
+            let indent = "  ".repeat(entry.depth);
+            let label: String = format!("{indent}{marker}{name}")
+                .chars()
+                .take(max_chars)
+                .collect();
+
+            FileBrowserRowLayout {
+                visible_row: row - offset,
+                is_selected: row == selected,
+                label,
+            }
+        })
+        .collect()
+}
+
+/// Screen-space placement + palette for the file-browser tree panel,
+/// passed into `Renderer::render` when the panel is open. Built by the GUI
+/// window layer (`ui::gui::window`) each frame from the shared
+/// `app::file_browser::FileBrowserState` plus the active theme.
+pub struct FileBrowserPanelView<'a> {
+    pub state: &'a FileBrowserState,
+    pub x: f32,
+    pub width: f32,
+    pub fg: Rgb,
+    pub selected_bg: Rgb,
+    pub selected_fg: Rgb,
 }
 
 fn in_selection(sel: Selection, row: u16, col: u16) -> bool {
@@ -791,5 +926,53 @@ mod tests {
         assert!(in_selection(sel, 5, 2));
         assert!(!in_selection(sel, 5, 3));
         assert!(!in_selection(sel, 3, 7));
+    }
+
+    /// Panel row-layout smoke test (Phase 3 of
+    /// `.claude/plans/inherited-painting-lark.md`): builds a real
+    /// `FileBrowserState` over a temp directory and asserts
+    /// `file_browser_panel_rows` produces the expected windowed,
+    /// selection-flagged, width-truncated labels — the same logic
+    /// `Renderer::push_file_browser_panel` turns into quads, minus the
+    /// `wgpu` device/queue calls that require a real GPU (see the
+    /// `headless_instance_and_optional_device` test above for why a full
+    /// `Renderer` can't be constructed in this environment: it needs a real
+    /// `winit::Window` surface).
+    #[test]
+    fn file_browser_panel_rows_windows_and_flags_selection() {
+        let dir = std::env::temp_dir().join(format!(
+            "casterm-gui-renderer-panel-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), b"x").unwrap();
+        std::fs::write(dir.join("b.txt"), b"x").unwrap();
+        std::fs::write(dir.join("c.txt"), b"x").unwrap();
+
+        let mut state = FileBrowserState::new(dir.clone(), false);
+        assert_eq!(state.entries().len(), 3);
+        state.move_selection(1);
+
+        // A 2-row window should show only the scrolled-into-view slice.
+        state.set_scroll_offset(1);
+        let rows = file_browser_panel_rows(&state, 2, 80);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].visible_row, 0);
+        assert!(
+            rows[0].is_selected,
+            "selected entry (index 1) is row 0 of the 1-offset window"
+        );
+        assert!(!rows[1].is_selected);
+
+        // A narrow panel truncates the label to `max_chars`.
+        state.set_scroll_offset(0);
+        let narrow = file_browser_panel_rows(&state, 3, 3);
+        assert!(narrow.iter().all(|r| r.label.chars().count() <= 3));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

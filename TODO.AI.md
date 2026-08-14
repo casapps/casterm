@@ -157,7 +157,7 @@ conversation"). Remove each line only once fully implemented.
   `apk` but not preinstalled), so this test can't assert a real device is
   always obtainable in CI.
 
-## Local file browser (Phases 1-2 of 6 done, `.claude/plans/inherited-painting-lark.md`)
+## Local file browser (Phases 1-3 of 6 done, `.claude/plans/inherited-painting-lark.md`)
 
 - Phase 1: shared-core infrastructure (`app::file_browser`, `app::editor`,
   `config::FileBrowserConfig`, the `Ctrl+T`-default toggle keybinding wired
@@ -175,6 +175,20 @@ conversation"). Remove each line only once fully implemented.
   editor and Phase 6 narrows `Image` to the built-in GUI viewer; the TUI
   stays on OS-handoff for images permanently (see the plan's TUI/GUI
   asymmetry note).
+- Phase 3: GUI tree panel rendering (`Renderer::push_file_browser_panel` +
+  `file_browser_panel_rows` in `src/ui/gui/renderer.rs`, emitting a
+  selected-row highlight quad and glyph-atlas quads per visible row into
+  the same vertex stream as the terminal grid — no separate
+  `src/ui/gui/file_browser.rs` file, since the glyph atlas and `push_quad`
+  are private to `renderer.rs`), a new `FileBrowserPanelView` render
+  argument, terminal-grid pixel-width shrinkage plus an x-offset when the
+  panel is open (`WindowState::recompute_terminal_grid`,
+  `file_browser_width`/`file_browser_position` fields), and the same
+  `j`/`k`/arrows/`Enter`/`l`/`Right`/`r`/`Esc` key routing as the TUI
+  (`WindowState::handle_file_browser_key`). Mouse click-to-select /
+  double-click-to-open in the GUI panel is deferred — MVP is
+  keyboard-only, matching the existing GUI mouse support's scope
+  (terminal-cell selection only).
 - `.gitignore`-aware tree filtering — needs the `ignore` crate, not
   currently a dependency.
 - File-type icons / nerd-font glyphs in the tree.

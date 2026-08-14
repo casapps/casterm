@@ -15,12 +15,12 @@ use winit::window::{Window, WindowId};
 use crate::app::keybindings::{KeymapResolver, Resolved};
 use crate::app::pane_runtime::{spawn_pane_runtime, PaneRuntime, PtyMsg};
 use crate::app::terminal::TerminalSize;
-use crate::config::{Config, ThemePalette};
+use crate::config::{Config, FileBrowserPosition, ThemePalette};
 use crate::support::error::{CastermError, Result};
 use crate::ui::render_model::{cursor_style, encode_key, resolve_grid, Rgb};
 
 use super::input::{to_key_code, to_key_modifiers};
-use super::renderer::{Renderer, Selection};
+use super::renderer::{FileBrowserPanelView, Renderer, Selection};
 
 /// Redraw/PTY-poll cadence — matches the TUI event loop's own 16ms poll
 /// interval (roughly 60Hz) so PTY output feels equally responsive in both
@@ -50,6 +50,8 @@ struct WindowState {
     /// `.claude/plans/inherited-painting-lark.md`.
     file_browser: Option<crate::app::file_browser::FileBrowserState>,
     file_browser_show_hidden: bool,
+    file_browser_width: u16,
+    file_browser_position: FileBrowserPosition,
 }
 
 impl WindowState {
@@ -122,10 +124,23 @@ impl WindowState {
                             ))
                         }
                     };
+                    // Toggling doesn't fire a `WindowEvent::Resized`, so the
+                    // terminal's cols/rows (which shrink to make room for
+                    // the panel) need an explicit recompute here.
+                    self.recompute_terminal_grid_from_window();
                 }
                 Ok(false)
             }
             Resolved::Pending => Ok(false),
+            // While the panel is open, any key that didn't resolve to a
+            // bound action (notably the toggle key itself, handled above)
+            // is swallowed by the panel instead of falling through to PTY
+            // passthrough — same "swallow while active" precedent as the
+            // TUI's `handle_file_browser_key`.
+            Resolved::NoMatch if self.file_browser.is_some() => {
+                self.handle_file_browser_key(code)?;
+                Ok(false)
+            }
             Resolved::NoMatch if mid_sequence => Ok(false),
             Resolved::NoMatch => {
                 let bytes = encode_key(crossterm::event::KeyEvent::new(code, mods));
@@ -134,6 +149,101 @@ impl WindowState {
                 }
                 Ok(false)
             }
+        }
+    }
+
+    /// Handle a key event while the file-browser panel has focus: move the
+    /// selection, expand/collapse a directory, or open a file. Mirrors
+    /// `ui::tui::mod::TuiApp::handle_file_browser_key` exactly, including
+    /// the OS-handoff-for-everything-non-directory behavior of this phase
+    /// (the built-in editor lands in Phase 4/5). `Esc` closes the panel.
+    fn handle_file_browser_key(&mut self, code: crossterm::event::KeyCode) -> Result<()> {
+        use crossterm::event::KeyCode;
+        match code {
+            KeyCode::Esc => {
+                self.file_browser = None;
+                self.recompute_terminal_grid_from_window();
+                Ok(())
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(browser) = self.file_browser.as_mut() {
+                    browser.move_selection(-1);
+                }
+                Ok(())
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(browser) = self.file_browser.as_mut() {
+                    browser.move_selection(1);
+                }
+                Ok(())
+            }
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
+                self.open_selected_file_browser_entry()
+            }
+            KeyCode::Char('r') => {
+                if let Some(browser) = self.file_browser.as_mut() {
+                    browser.refresh();
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Act on the currently-selected file-browser entry: expand/collapse a
+    /// directory, or classify and hand a file off to the OS default
+    /// application. Every non-directory `FileKind` takes the OS-handoff
+    /// path in this phase, matching the TUI's Phase 2 behavior exactly.
+    fn open_selected_file_browser_entry(&mut self) -> Result<()> {
+        let Some(browser) = self.file_browser.as_mut() else {
+            return Ok(());
+        };
+        let Some(entry) = browser.selected_entry() else {
+            return Ok(());
+        };
+        if entry.is_dir {
+            browser.toggle_selected();
+            return Ok(());
+        }
+        let path = entry.path.clone();
+        match crate::app::file_browser::classify_path(&path) {
+            crate::app::file_browser::FileKind::Directory => Ok(()),
+            crate::app::file_browser::FileKind::Text
+            | crate::app::file_browser::FileKind::Image
+            | crate::app::file_browser::FileKind::Other => {
+                crate::platform::Platform::open_with_default_app(&path)
+            }
+        }
+    }
+
+    /// Pixel width currently reserved for the file-browser panel — zero
+    /// when it's closed.
+    fn file_browser_panel_px(&self) -> f32 {
+        if self.file_browser.is_some() {
+            self.file_browser_width as f32 * self.renderer.cell_size().0
+        } else {
+            0.0
+        }
+    }
+
+    /// Recompute the terminal's cols/rows from the current window size,
+    /// accounting for the panel's pixel width when open. Shared by
+    /// `handle_resize` (a real `WindowEvent::Resized`) and by the panel
+    /// toggle/close paths above (which don't fire one).
+    fn recompute_terminal_grid_from_window(&mut self) {
+        let size = self.window.inner_size();
+        self.recompute_terminal_grid(size.width, size.height);
+    }
+
+    fn recompute_terminal_grid(&mut self, width: u32, height: u32) {
+        let (cell_w, cell_h) = self.renderer.cell_size();
+        let usable_width = (width as f32 - self.file_browser_panel_px()).max(cell_w);
+        let cols = ((usable_width / cell_w).floor().max(1.0)) as u16;
+        let rows = ((height as f32 / cell_h).floor().max(1.0)) as u16;
+        let current = self.pane.emulator.size();
+        if cols != current.cols || rows != current.rows {
+            self.pane.emulator.resize(TerminalSize { cols, rows });
+            let _ = self.pane.backend.resize(rows, cols);
         }
     }
 
@@ -164,6 +274,56 @@ impl WindowState {
         let (sfr, sfg, sfb) = self.theme.selection_fg_rgb();
         let (cr, cg, cb) = self.theme.cursor_rgb();
         let style = cursor_style(&self.pane.emulator);
+
+        let (_, cell_h) = self.renderer.cell_size();
+        let panel_px = self.file_browser_panel_px();
+        let win_width = self.window.inner_size().width as f32;
+
+        // Keep the selected row scrolled into view before rendering — same
+        // clamp algorithm as the TUI's `run_app` panel carve-out.
+        if let Some(browser) = self.file_browser.as_mut() {
+            let visible_rows = (self.window.inner_size().height as f32 / cell_h)
+                .floor()
+                .max(1.0) as usize;
+            let selected = browser.selected_index();
+            let offset = browser.scroll_offset();
+            let new_offset = if selected < offset {
+                selected
+            } else if selected >= offset + visible_rows {
+                selected + 1 - visible_rows
+            } else {
+                offset
+            };
+            browser.set_scroll_offset(new_offset);
+        }
+
+        let (term_x_offset, panel_view) = if let Some(browser) = self.file_browser.as_ref() {
+            let (fr, fgg, fb) = self.theme.fg_rgb();
+            let (sel_r, sel_g, sel_b) = self.theme.ansi_color(4);
+            let (sel_fg_r, sel_fg_g, sel_fg_b) = self.theme.bg_rgb();
+            let x = match self.file_browser_position {
+                FileBrowserPosition::Left => 0.0,
+                FileBrowserPosition::Right => win_width - panel_px,
+            };
+            let term_offset = match self.file_browser_position {
+                FileBrowserPosition::Left => panel_px,
+                FileBrowserPosition::Right => 0.0,
+            };
+            (
+                term_offset,
+                Some(FileBrowserPanelView {
+                    state: browser,
+                    x,
+                    width: panel_px,
+                    fg: Rgb(fr, fgg, fb),
+                    selected_bg: Rgb(sel_r, sel_g, sel_b),
+                    selected_fg: Rgb(sel_fg_r, sel_fg_g, sel_fg_b),
+                }),
+            )
+        } else {
+            (0.0, None)
+        };
+
         self.renderer.render(
             &cells,
             size.cols,
@@ -174,19 +334,14 @@ impl WindowState {
             Rgb(sfr, sfg, sfb),
             style,
             Rgb(cr, cg, cb),
+            term_x_offset,
+            panel_view,
         )
     }
 
     fn handle_resize(&mut self, width: u32, height: u32) {
         self.renderer.resize(width, height);
-        let (cell_w, cell_h) = self.renderer.cell_size();
-        let cols = ((width as f32 / cell_w).floor().max(1.0)) as u16;
-        let rows = ((height as f32 / cell_h).floor().max(1.0)) as u16;
-        let current = self.pane.emulator.size();
-        if cols != current.cols || rows != current.rows {
-            self.pane.emulator.resize(TerminalSize { cols, rows });
-            let _ = self.pane.backend.resize(rows, cols);
-        }
+        self.recompute_terminal_grid(width, height);
     }
 }
 
@@ -289,6 +444,8 @@ impl ApplicationHandler for GuiApp {
             last_title: String::new(),
             file_browser: None,
             file_browser_show_hidden: self.config.file_browser.show_hidden,
+            file_browser_width: self.config.file_browser.width,
+            file_browser_position: self.config.file_browser.position,
         });
 
         event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + POLL_INTERVAL));
