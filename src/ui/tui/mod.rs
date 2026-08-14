@@ -1,12 +1,14 @@
 //! TUI mode using ratatui + crossterm with full PTY-backed terminal emulation
 
+mod file_browser;
+
 use std::collections::HashMap;
 use std::io::stdout;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crossterm::{
-    event::{self, Event, KeyEvent, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, size as terminal_size, EnterAlternateScreen,
@@ -33,10 +35,12 @@ use crate::app::session::{Session, SessionId};
 use crate::app::ssh::SshConfig;
 use crate::app::terminal::{Terminal as TerminalEmulator, TerminalSize};
 use crate::app::App;
-use crate::config::{Config, StatusBarPosition, ThemePalette};
+use crate::config::{Config, FileBrowserPosition, StatusBarPosition, ThemePalette};
 use crate::state::{PaneState, WindowState};
 use crate::support::error::{CastermError, Result};
 use crate::ui::render_model::{encode_key, resolve_grid, Rgb};
+
+use file_browser::FileBrowserPanel;
 
 /// Convert a live window + its running panes into a serializable
 /// `WindowState`, pairing each pane with the working directory its
@@ -437,6 +441,18 @@ impl TuiApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
+        // While the file-browser panel is open, keys are swallowed by the
+        // panel first — same "swallow while active" precedent as the
+        // locked/awaiting_input branches below — except any key that
+        // resolves to a bound action (notably the toggle key itself, to
+        // close the panel again) still goes through the normal resolver.
+        if self.file_browser.is_some() {
+            if let Resolved::Action(action) = self.keymap.resolve(key.modifiers, key.code) {
+                return self.dispatch_action(&action);
+            }
+            return self.handle_file_browser_key(key);
+        }
+
         // A sequence already in progress (or locked mode) means an
         // unmatched key must be swallowed rather than sent to the PTY —
         // mirrors tmux's "prefix eats the next key" behavior.
@@ -451,6 +467,69 @@ impl TuiApp {
                     self.write_to_pty(&bytes)?;
                 }
                 Ok(())
+            }
+        }
+    }
+
+    /// Handle a key event while the file-browser panel has focus: move the
+    /// selection, expand/collapse a directory, or open a file (classified
+    /// via `app::file_browser::classify_path` and, in this phase, always
+    /// handed off to the OS default application — the built-in editor lands
+    /// in Phase 4). `Esc` closes the panel.
+    fn handle_file_browser_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => {
+                self.file_browser = None;
+                Ok(())
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(browser) = self.file_browser.as_mut() {
+                    browser.move_selection(-1);
+                }
+                Ok(())
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(browser) = self.file_browser.as_mut() {
+                    browser.move_selection(1);
+                }
+                Ok(())
+            }
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
+                self.open_selected_file_browser_entry()
+            }
+            KeyCode::Char('r') => {
+                if let Some(browser) = self.file_browser.as_mut() {
+                    browser.refresh();
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Act on the currently-selected file-browser entry: expand/collapse a
+    /// directory, or classify and hand a file off to the OS default
+    /// application. Every non-directory `FileKind` takes the OS-handoff path
+    /// in this phase — the built-in text editor (Phase 4) and image viewer
+    /// (Phase 6) narrow this down to just `Other` in later phases.
+    fn open_selected_file_browser_entry(&mut self) -> Result<()> {
+        let Some(browser) = self.file_browser.as_mut() else {
+            return Ok(());
+        };
+        let Some(entry) = browser.selected_entry() else {
+            return Ok(());
+        };
+        if entry.is_dir {
+            browser.toggle_selected();
+            return Ok(());
+        }
+        let path = entry.path.clone();
+        match crate::app::file_browser::classify_path(&path) {
+            crate::app::file_browser::FileKind::Directory => Ok(()),
+            crate::app::file_browser::FileKind::Text
+            | crate::app::file_browser::FileKind::Image
+            | crate::app::file_browser::FileKind::Other => {
+                crate::platform::Platform::open_with_default_app(&path)
             }
         }
     }
@@ -1007,6 +1086,66 @@ fn run_app<B: Backend + std::io::Write>(
             (full_area, None)
         };
 
+        // Carve a width-wide strip off the left/right edge of `term_area`
+        // for the file-browser panel, before `layout_rects()` runs — same
+        // carve-out pattern already used above for `status_area`.
+        let panel_width = app
+            .file_browser
+            .as_ref()
+            .map(|_| {
+                app.config
+                    .file_browser
+                    .width
+                    .min(term_area.width.saturating_sub(1))
+            })
+            .unwrap_or(0);
+        let (term_area, panel_area) = if panel_width > 0 {
+            match app.config.file_browser.position {
+                FileBrowserPosition::Left => {
+                    let panel = Rect::new(term_area.x, term_area.y, panel_width, term_area.height);
+                    let rest = Rect::new(
+                        term_area.x + panel_width,
+                        term_area.y,
+                        term_area.width - panel_width,
+                        term_area.height,
+                    );
+                    (rest, Some(panel))
+                }
+                FileBrowserPosition::Right => {
+                    let panel = Rect::new(
+                        term_area.x + term_area.width - panel_width,
+                        term_area.y,
+                        panel_width,
+                        term_area.height,
+                    );
+                    let rest = Rect::new(
+                        term_area.x,
+                        term_area.y,
+                        term_area.width - panel_width,
+                        term_area.height,
+                    );
+                    (rest, Some(panel))
+                }
+            }
+        } else {
+            (term_area, None)
+        };
+
+        // Keep the selected row scrolled into view before rendering.
+        if let (Some(fb), Some(panel)) = (app.file_browser.as_mut(), panel_area) {
+            let visible = panel.height as usize;
+            let selected = fb.selected_index();
+            let offset = fb.scroll_offset();
+            let new_offset = if selected < offset {
+                selected
+            } else if visible > 0 && selected >= offset + visible {
+                selected + 1 - visible
+            } else {
+                offset
+            };
+            fb.set_scroll_offset(new_offset);
+        }
+
         // Resize every pane to whatever rect the current split layout
         // assigns it; only the panes whose rect actually changed size
         // touch their PTY/emulator (checked inside resize_panes).
@@ -1078,6 +1217,16 @@ fn run_app<B: Backend + std::io::Write>(
                             git_branch: branch,
                         },
                         sa,
+                    );
+                }
+
+                if let (Some(fb), Some(panel)) = (app.file_browser.as_ref(), panel_area) {
+                    frame.render_widget(
+                        FileBrowserPanel {
+                            state: fb,
+                            theme: &app.theme,
+                        },
+                        panel,
                     );
                 }
             })

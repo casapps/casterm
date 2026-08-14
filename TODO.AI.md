@@ -157,15 +157,24 @@ conversation"). Remove each line only once fully implemented.
   `apk` but not preinstalled), so this test can't assert a real device is
   always obtainable in CI.
 
-## Local file browser (Phase 1 of 6, `.claude/plans/inherited-painting-lark.md`)
+## Local file browser (Phases 1-2 of 6 done, `.claude/plans/inherited-painting-lark.md`)
 
-- Phase 1 (this phase) is shared-core infrastructure only
-  (`app::file_browser`, `app::editor`, `config::FileBrowserConfig`, the
-  `Ctrl+T`-default toggle keybinding wired into both front ends'
-  `dispatch_action`/`dispatch_key`) — nothing renders yet. Both new modules
-  carry a temporary `#![allow(dead_code)]` until Phase 2 (TUI tree
-  rendering) and Phase 4 (TUI editor)/Phase 5 (GUI editor) give them real
-  callers; remove the attributes once wired in.
+- Phase 1: shared-core infrastructure (`app::file_browser`, `app::editor`,
+  `config::FileBrowserConfig`, the `Ctrl+T`-default toggle keybinding wired
+  into both front ends' `dispatch_action`/`dispatch_key`).
+  `app::editor::EditorState`/`ViewerContent`/`open_for_edit` still carry a
+  targeted `#[allow(dead_code)]` until Phase 4 (TUI editor)/Phase 5 (GUI
+  editor) give them real callers; remove those attributes once wired in.
+- Phase 2: TUI tree panel rendering (`ui::tui::file_browser::FileBrowserPanel`,
+  a carved-out `Rect` on the left/right edge of `term_area`), key routing
+  while the panel is focused (`j`/`k`/arrows move, `Enter`/`l`/Right
+  expand-or-open, `r` refreshes the tree, `Esc` closes),
+  `Platform::open_with_default_app` (`src/platform/mod.rs`) for OS handoff.
+  Every non-directory `FileKind` (`Text`, `Image`, `Other`) takes the
+  OS-handoff path in this phase — Phase 4 narrows `Text` to the built-in
+  editor and Phase 6 narrows `Image` to the built-in GUI viewer; the TUI
+  stays on OS-handoff for images permanently (see the plan's TUI/GUI
+  asymmetry note).
 - `.gitignore`-aware tree filtering — needs the `ignore` crate, not
   currently a dependency.
 - File-type icons / nerd-font glyphs in the tree.
