@@ -13,6 +13,7 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
+use crate::app::editor::EditorState;
 use crate::app::file_browser::FileBrowserState;
 use crate::app::terminal::CursorStyle;
 use crate::support::error::{CastermError, Result};
@@ -493,6 +494,7 @@ impl Renderer {
         cursor_color: Rgb,
         term_x_offset: f32,
         panel: Option<FileBrowserPanelView<'_>>,
+        editor: Option<EditorPanelView<'_>>,
     ) -> Result<()> {
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -509,79 +511,87 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut vertices: Vec<Vertex> = Vec::new();
-        for row in 0..rows {
-            for col in 0..cols {
-                let idx = row as usize * cols as usize + col as usize;
-                let Some(cell) = cells.get(idx) else {
-                    continue;
-                };
-                let x0 = term_x_offset + col as f32 * self.cell_w;
-                let y0 = row as f32 * self.cell_h;
-
-                let selected = selection.is_some_and(|s| in_selection(s, row, col));
-                let cell_bg = if selected { selection_bg } else { cell.bg };
-                if cell.is_cursor && !selected {
-                    let (qy0, qh, qx0, qw) = match cursor_style {
-                        CursorStyle::Block => (y0, self.cell_h, x0, self.cell_w),
-                        CursorStyle::Underline => {
-                            let h = self.cell_h * 0.15;
-                            (y0 + self.cell_h - h, h, x0, self.cell_w)
-                        }
-                        CursorStyle::Bar => {
-                            let w = self.cell_w * 0.12;
-                            (y0, self.cell_h, x0, w)
-                        }
+        if let Some(editor) = &editor {
+            // The built-in text editor takes over the full window (a
+            // narrow tree-panel strip is unusably narrow for editing), so
+            // it replaces the terminal-grid loop and any tree panel below
+            // rather than sharing space with them.
+            self.push_editor_panel(&mut vertices, editor);
+        } else {
+            for row in 0..rows {
+                for col in 0..cols {
+                    let idx = row as usize * cols as usize + col as usize;
+                    let Some(cell) = cells.get(idx) else {
+                        continue;
                     };
-                    push_quad(
-                        &mut vertices,
-                        qx0,
-                        qy0,
-                        qw,
-                        qh,
-                        [0.0, 0.0],
-                        [0.0, 0.0],
-                        rgb_to_f32(cursor_color, 1.0),
-                        0.0,
-                    );
-                } else if cell_bg != bg {
-                    push_quad(
-                        &mut vertices,
-                        x0,
-                        y0,
-                        self.cell_w,
-                        self.cell_h,
-                        [0.0, 0.0],
-                        [0.0, 0.0],
-                        rgb_to_f32(cell_bg, 1.0),
-                        0.0,
-                    );
-                }
+                    let x0 = term_x_offset + col as f32 * self.cell_w;
+                    let y0 = row as f32 * self.cell_h;
 
-                if cell.hidden || cell.ch == ' ' {
-                    continue;
+                    let selected = selection.is_some_and(|s| in_selection(s, row, col));
+                    let cell_bg = if selected { selection_bg } else { cell.bg };
+                    if cell.is_cursor && !selected {
+                        let (qy0, qh, qx0, qw) = match cursor_style {
+                            CursorStyle::Block => (y0, self.cell_h, x0, self.cell_w),
+                            CursorStyle::Underline => {
+                                let h = self.cell_h * 0.15;
+                                (y0 + self.cell_h - h, h, x0, self.cell_w)
+                            }
+                            CursorStyle::Bar => {
+                                let w = self.cell_w * 0.12;
+                                (y0, self.cell_h, x0, w)
+                            }
+                        };
+                        push_quad(
+                            &mut vertices,
+                            qx0,
+                            qy0,
+                            qw,
+                            qh,
+                            [0.0, 0.0],
+                            [0.0, 0.0],
+                            rgb_to_f32(cursor_color, 1.0),
+                            0.0,
+                        );
+                    } else if cell_bg != bg {
+                        push_quad(
+                            &mut vertices,
+                            x0,
+                            y0,
+                            self.cell_w,
+                            self.cell_h,
+                            [0.0, 0.0],
+                            [0.0, 0.0],
+                            rgb_to_f32(cell_bg, 1.0),
+                            0.0,
+                        );
+                    }
+
+                    if cell.hidden || cell.ch == ' ' {
+                        continue;
+                    }
+                    let Some(glyph) = self.atlas.glyph(cell.ch, &self.queue) else {
+                        continue;
+                    };
+                    let gx = x0 + glyph.left.max(0.0);
+                    let gy = y0 + (self.ascent - glyph.height - glyph.top);
+                    let fg = if selected { selection_fg } else { cell.fg };
+                    push_quad(
+                        &mut vertices,
+                        gx,
+                        gy,
+                        glyph.width,
+                        glyph.height,
+                        glyph.uv_min,
+                        glyph.uv_max,
+                        rgb_to_f32(fg, 1.0),
+                        1.0,
+                    );
                 }
-                let Some(glyph) = self.atlas.glyph(cell.ch, &self.queue) else {
-                    continue;
-                };
-                let gx = x0 + glyph.left.max(0.0);
-                let gy = y0 + (self.ascent - glyph.height - glyph.top);
-                let fg = if selected { selection_fg } else { cell.fg };
-                push_quad(
-                    &mut vertices,
-                    gx,
-                    gy,
-                    glyph.width,
-                    glyph.height,
-                    glyph.uv_min,
-                    glyph.uv_max,
-                    rgb_to_f32(fg, 1.0),
-                    1.0,
-                );
             }
-        }
 
-        if let Some(panel) = &panel {
-            self.push_file_browser_panel(&mut vertices, panel);
+            if let Some(panel) = &panel {
+                self.push_file_browser_panel(&mut vertices, panel);
+            }
         }
 
         let vertex_bytes = vertices_to_bytes(&vertices);
@@ -688,6 +698,139 @@ impl Renderer {
             }
         }
     }
+
+    /// Default nano-style key-hint bar text, shown when no transient
+    /// `status` message is set — verbatim match of
+    /// `ui::tui::editor::HINT_BAR`.
+    const HINT_BAR: &str = "^S Save  ^X Exit  ^T Close Panel";
+
+    /// Emit the built-in editor's quads: a header row (file name plus
+    /// `[Modified]` while dirty), the visible text lines, and a bottom
+    /// key-hint bar (or a transient status message in its place) —
+    /// screen-space mirror of `ui::tui::editor::EditorPanel`, but spanning
+    /// the full window instead of a narrow panel strip.
+    fn push_editor_panel(&mut self, out: &mut Vec<Vertex>, view: &EditorPanelView<'_>) {
+        let width_px = self.config.width as f32;
+        let max_chars = (width_px / self.cell_w).floor().max(0.0) as usize;
+        let total_rows = (self.config.height as f32 / self.cell_h).floor().max(0.0) as usize;
+        let text_rows = total_rows.saturating_sub(2);
+
+        push_quad(
+            out,
+            0.0,
+            0.0,
+            width_px,
+            self.cell_h,
+            [0.0, 0.0],
+            [0.0, 0.0],
+            rgb_to_f32(view.bar_bg, 1.0),
+            0.0,
+        );
+        let name = view
+            .state
+            .path()
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("[No Name]");
+        let header_text = if view.state.dirty() {
+            format!("{name} [Modified]")
+        } else {
+            name.to_string()
+        };
+        self.push_editor_text_row(out, &header_text, 0.0, max_chars, view.bar_fg);
+
+        for row_layout in editor_panel_rows(view.state, text_rows, max_chars) {
+            let y0 = self.cell_h + row_layout.visible_row as f32 * self.cell_h;
+            self.push_editor_text_row(out, &row_layout.text, y0, max_chars, view.fg);
+        }
+
+        let hint_y = total_rows.saturating_sub(1) as f32 * self.cell_h;
+        push_quad(
+            out,
+            0.0,
+            hint_y,
+            width_px,
+            self.cell_h,
+            [0.0, 0.0],
+            [0.0, 0.0],
+            rgb_to_f32(view.bar_bg, 1.0),
+            0.0,
+        );
+        let hint_text = view.status.unwrap_or(Self::HINT_BAR);
+        self.push_editor_text_row(out, hint_text, hint_y, max_chars, view.bar_fg);
+    }
+
+    /// Shared glyph-emission helper for `push_editor_panel`'s header/text/
+    /// hint-bar rows — one glyph-atlas quad per non-space character, at a
+    /// fixed row `y`, truncated to `max_chars`.
+    fn push_editor_text_row(
+        &mut self,
+        out: &mut Vec<Vertex>,
+        text: &str,
+        y: f32,
+        max_chars: usize,
+        color: Rgb,
+    ) {
+        for (col, ch) in text.chars().take(max_chars).enumerate() {
+            if ch == ' ' {
+                continue;
+            }
+            let Some(glyph) = self.atlas.glyph(ch, &self.queue) else {
+                continue;
+            };
+            let gx = col as f32 * self.cell_w + glyph.left.max(0.0);
+            let gy = y + (self.ascent - glyph.height - glyph.top);
+            push_quad(
+                out,
+                gx,
+                gy,
+                glyph.width,
+                glyph.height,
+                glyph.uv_min,
+                glyph.uv_max,
+                rgb_to_f32(color, 1.0),
+                1.0,
+            );
+        }
+    }
+}
+
+/// One laid-out row of the built-in editor's text area, ready to turn into
+/// quads: its position among the *visible* (scrolled-into-view) rows and
+/// its already-truncated text. Split out from `Renderer::push_editor_panel`
+/// as a pure function (no `wgpu` types) so the scroll/truncation logic is
+/// unit-testable without a GPU device — same precedent as
+/// `file_browser_panel_rows`.
+struct EditorRowLayout {
+    visible_row: usize,
+    text: String,
+}
+
+fn editor_panel_rows(
+    state: &EditorState,
+    text_rows: usize,
+    max_chars: usize,
+) -> Vec<EditorRowLayout> {
+    let (cursor_row, _) = state.cursor();
+    let scroll = if text_rows == 0 {
+        0
+    } else if cursor_row >= text_rows {
+        cursor_row + 1 - text_rows
+    } else {
+        0
+    };
+
+    state
+        .lines()
+        .iter()
+        .enumerate()
+        .skip(scroll)
+        .take(text_rows)
+        .map(|(row, line)| EditorRowLayout {
+            visible_row: row - scroll,
+            text: line.chars().take(max_chars).collect(),
+        })
+        .collect()
 }
 
 /// One laid-out row of the file-browser panel, ready to turn into quads:
@@ -758,6 +901,19 @@ pub struct FileBrowserPanelView<'a> {
     pub fg: Rgb,
     pub selected_bg: Rgb,
     pub selected_fg: Rgb,
+}
+
+/// Screen-space palette for the built-in text editor, passed into
+/// `Renderer::render` when `ViewerContent::Editor` is active. Unlike
+/// `FileBrowserPanelView` this always spans the full window rather than a
+/// narrow strip (see phase 5 of `.claude/plans/inherited-painting-lark.md`
+/// — a 30-column panel is unusably narrow for editing).
+pub struct EditorPanelView<'a> {
+    pub state: &'a EditorState,
+    pub status: Option<&'a str>,
+    pub fg: Rgb,
+    pub bar_bg: Rgb,
+    pub bar_fg: Rgb,
 }
 
 fn in_selection(sel: Selection, row: u16, col: u16) -> bool {
@@ -974,5 +1130,49 @@ mod tests {
         assert!(narrow.iter().all(|r| r.label.chars().count() <= 3));
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Editor row-layout smoke test (Phase 5 of
+    /// `.claude/plans/inherited-painting-lark.md`): builds a real
+    /// `EditorState` over a temp file and asserts `editor_panel_rows`
+    /// produces the expected scrolled-into-view, width-truncated lines —
+    /// the same logic `Renderer::push_editor_panel` turns into quads,
+    /// minus the `wgpu` calls. Mirrors
+    /// `file_browser_panel_rows_windows_and_flags_selection` above.
+    #[test]
+    fn editor_panel_rows_scrolls_to_cursor_and_truncates() {
+        let path = std::env::temp_dir().join(format!(
+            "casterm-gui-renderer-editor-test-{}-{}.txt",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, "line0\nline1\nline2\nline3\nline4").unwrap();
+
+        let mut editor = EditorState::load(path.clone()).unwrap();
+        assert_eq!(editor.lines().len(), 5);
+
+        // With a 2-row window and the cursor still at row 0, no scroll.
+        let rows = editor_panel_rows(&editor, 2, 80);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].text, "line0");
+        assert_eq!(rows[1].text, "line1");
+
+        // Moving the cursor past the window scrolls it into view.
+        editor.move_cursor(4, 0);
+        let scrolled = editor_panel_rows(&editor, 2, 80);
+        assert_eq!(scrolled.len(), 2);
+        assert_eq!(scrolled[0].visible_row, 0);
+        assert_eq!(scrolled[0].text, "line3");
+        assert_eq!(scrolled[1].text, "line4");
+
+        // A narrow window truncates each line to `max_chars`.
+        editor.move_cursor(-4, 0);
+        let narrow = editor_panel_rows(&editor, 5, 3);
+        assert!(narrow.iter().all(|r| r.text.chars().count() <= 3));
+
+        std::fs::remove_file(&path).unwrap();
     }
 }

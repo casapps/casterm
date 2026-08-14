@@ -6,9 +6,15 @@
 //! the actual buffer-editing logic isn't duplicated between them.
 //!
 //! Landed in Phase 1 of `.claude/plans/inherited-painting-lark.md`; wired
-//! into the TUI in Phase 4 (`ui::tui::editor`) and the GUI in Phase 5.
+//! into the TUI in Phase 4 (`ui::tui::editor`) and the GUI in Phase 5
+//! (`ui::gui::editor`). `dispatch_editor_key` below (added in Phase 4) is
+//! the shared key-routing table for both front ends — both use
+//! `crossterm::event::KeyCode` for key events, so the dispatch table lives
+//! here instead of being duplicated per front end.
 
 use std::path::PathBuf;
+
+use crossterm::event::KeyCode;
 
 use crate::support::error::Result;
 
@@ -149,6 +155,85 @@ impl EditorState {
     }
 }
 
+/// What happened when a key was routed into the editor via
+/// `dispatch_editor_key`, so a front end's own key handler can update its
+/// UI-layer state (e.g. a transient status message, or switching back to
+/// the tree view) without duplicating the dispatch table.
+#[derive(Debug, PartialEq)]
+pub enum EditorKeyOutcome {
+    /// The key was handled entirely inside `EditorState` (edit, cursor
+    /// move, or an unmapped key that fell through to nothing).
+    Handled,
+    /// `Ctrl+S`: buffer saved (`Ok`) or failed (`Err` with a message).
+    Saved(std::result::Result<(), String>),
+    /// `Ctrl+X`: exit the editor back to the tree view.
+    Exit,
+}
+
+/// Route one key event into `EditorState`'s edit methods — the nano-style
+/// hint-bar bindings (`Ctrl+S` save, `Ctrl+X` exit) plus non-modal
+/// insert/delete/navigate for everything else. A free function (no
+/// front-end dependency) shared by both `ui::tui::mod::TuiApp` and
+/// `ui::gui::window::WindowState` so the dispatch table itself is
+/// unit-testable without constructing a full `TuiApp`/`WindowState`.
+pub fn dispatch_editor_key(
+    editor: &mut EditorState,
+    code: KeyCode,
+    ctrl: bool,
+) -> EditorKeyOutcome {
+    match code {
+        KeyCode::Char('s') if ctrl => {
+            EditorKeyOutcome::Saved(editor.save().map_err(|e| e.to_string()))
+        }
+        KeyCode::Char('x') if ctrl => EditorKeyOutcome::Exit,
+        KeyCode::Char(ch) => {
+            editor.insert_char(ch);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Enter => {
+            editor.newline();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Backspace => {
+            editor.backspace();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Delete => {
+            editor.delete_forward();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Left => {
+            editor.move_cursor(0, -1);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Right => {
+            editor.move_cursor(0, 1);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Up => {
+            editor.move_cursor(-1, 0);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Down => {
+            editor.move_cursor(1, 0);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Home => {
+            editor.move_home();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::End => {
+            editor.move_end();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Tab => {
+            editor.insert_char('\t');
+            EditorKeyOutcome::Handled
+        }
+        _ => EditorKeyOutcome::Handled,
+    }
+}
+
 fn split_lines(content: &str) -> Vec<String> {
     if content.is_empty() {
         return vec![String::new()];
@@ -246,5 +331,86 @@ mod tests {
         assert_eq!(state.cursor(), (0, 0));
         state.move_cursor(10, 10);
         assert_eq!(state.cursor(), (0, 0));
+    }
+
+    fn temp_editor(name: &str) -> EditorState {
+        EditorState::load(temp_path(name)).unwrap()
+    }
+
+    #[test]
+    fn ctrl_s_saves_and_reports_success() {
+        let mut editor = temp_editor("dispatch-save.txt");
+        editor.insert_char('x');
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('s'), true);
+        assert_eq!(outcome, EditorKeyOutcome::Saved(Ok(())));
+        assert!(!editor.dirty());
+        std::fs::remove_file(editor.path()).unwrap();
+    }
+
+    #[test]
+    fn ctrl_x_exits() {
+        let mut editor = temp_editor("dispatch-exit.txt");
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('x'), true);
+        assert_eq!(outcome, EditorKeyOutcome::Exit);
+    }
+
+    #[test]
+    fn plain_char_falls_through_to_insert() {
+        let mut editor = temp_editor("dispatch-insert.txt");
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('a'), false);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &["a".to_string()]);
+    }
+
+    #[test]
+    fn ctrl_char_other_than_s_or_x_falls_through_to_insert() {
+        // Only `s` and `x` are hint-bar bindings; every other Ctrl+letter
+        // still inserts non-modally rather than being silently swallowed.
+        let mut editor = temp_editor("dispatch-ctrl-other.txt");
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('q'), true);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &["q".to_string()]);
+    }
+
+    #[test]
+    fn enter_maps_to_newline() {
+        let mut editor = temp_editor("dispatch-newline.txt");
+        editor.insert_char('a');
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Enter, false);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &["a".to_string(), String::new()]);
+    }
+
+    #[test]
+    fn backspace_maps_to_backspace() {
+        let mut editor = temp_editor("dispatch-backspace.txt");
+        editor.insert_char('a');
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Backspace, false);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &[String::new()]);
+    }
+
+    #[test]
+    fn arrow_and_home_end_map_to_cursor_movement() {
+        let mut editor = temp_editor("dispatch-move.txt");
+        for ch in "ab".chars() {
+            editor.insert_char(ch);
+        }
+        dispatch_editor_key(&mut editor, KeyCode::Home, false);
+        assert_eq!(editor.cursor(), (0, 0));
+        dispatch_editor_key(&mut editor, KeyCode::End, false);
+        assert_eq!(editor.cursor(), (0, 2));
+        dispatch_editor_key(&mut editor, KeyCode::Left, false);
+        assert_eq!(editor.cursor(), (0, 1));
+        dispatch_editor_key(&mut editor, KeyCode::Right, false);
+        assert_eq!(editor.cursor(), (0, 2));
+    }
+
+    #[test]
+    fn unmapped_key_is_a_no_op() {
+        let mut editor = temp_editor("dispatch-unmapped.txt");
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::F(5), false);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &[String::new()]);
     }
 }

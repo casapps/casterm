@@ -25,6 +25,7 @@ use ratatui::{
     Terminal,
 };
 
+use crate::app::editor::{dispatch_editor_key, EditorKeyOutcome};
 use crate::app::keybindings::{KeymapResolver, Resolved};
 use crate::app::multiplexer::{Layout, PaneId, SplitDirection, Window};
 use crate::app::pane_runtime::{
@@ -555,13 +556,15 @@ impl TuiApp {
     }
 
     /// Handle a key event while the built-in editor has focus. Delegates
-    /// the actual dispatch table to the free function `dispatch_editor_key`
-    /// (no `TuiApp` dependency) so the routing logic — which hint-bar
-    /// binding maps to which `EditorState` call, and that unmapped keys
-    /// fall through to `insert_char` — is unit-testable without
-    /// constructing a full `TuiApp` (which spawns a real PTY pane). The
-    /// panel's own toggle key closes the whole panel (handled earlier in
-    /// `handle_key`, before this is reached).
+    /// the actual dispatch table to `app::editor::dispatch_editor_key`
+    /// (shared with the GUI editor, Phase 5, since both front ends' key
+    /// events are `crossterm::event::KeyCode`) so the routing logic — which
+    /// hint-bar binding maps to which `EditorState` call, and that unmapped
+    /// keys fall through to `insert_char` — isn't duplicated between front
+    /// ends and is unit-testable without constructing a full `TuiApp`
+    /// (which spawns a real PTY pane). The panel's own toggle key closes
+    /// the whole panel (handled earlier in `handle_key`, before this is
+    /// reached).
     fn handle_editor_key(&mut self, key: KeyEvent) -> Result<()> {
         let crate::app::file_browser::ViewerContent::Editor(editor) = &mut self.viewer else {
             return Ok(());
@@ -624,178 +627,6 @@ impl TuiApp {
             }
             _ => Ok(()),
         }
-    }
-}
-
-/// What happened when a key was routed into the editor via
-/// `dispatch_editor_key`, so `TuiApp::handle_editor_key` can update its own
-/// `viewer`/`editor_status` fields without duplicating the dispatch table.
-#[derive(Debug, PartialEq)]
-enum EditorKeyOutcome {
-    /// The key was handled entirely inside `EditorState` (edit, cursor
-    /// move, or an unmapped key that fell through to nothing).
-    Handled,
-    /// `Ctrl+S`: buffer saved (`Ok`) or failed (`Err` with a message).
-    Saved(std::result::Result<(), String>),
-    /// `Ctrl+X`: exit the editor back to the tree view.
-    Exit,
-}
-
-/// Route one key event into `EditorState`'s edit methods — the nano-style
-/// hint-bar bindings (`Ctrl+S` save, `Ctrl+X` exit) plus non-modal
-/// insert/delete/navigate for everything else. A free function (no
-/// `TuiApp`) so the dispatch table itself is unit-testable without
-/// constructing a full `TuiApp`.
-fn dispatch_editor_key(
-    editor: &mut crate::app::editor::EditorState,
-    code: KeyCode,
-    ctrl: bool,
-) -> EditorKeyOutcome {
-    match code {
-        KeyCode::Char('s') if ctrl => {
-            EditorKeyOutcome::Saved(editor.save().map_err(|e| e.to_string()))
-        }
-        KeyCode::Char('x') if ctrl => EditorKeyOutcome::Exit,
-        KeyCode::Char(ch) => {
-            editor.insert_char(ch);
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Enter => {
-            editor.newline();
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Backspace => {
-            editor.backspace();
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Delete => {
-            editor.delete_forward();
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Left => {
-            editor.move_cursor(0, -1);
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Right => {
-            editor.move_cursor(0, 1);
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Up => {
-            editor.move_cursor(-1, 0);
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Down => {
-            editor.move_cursor(1, 0);
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Home => {
-            editor.move_home();
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::End => {
-            editor.move_end();
-            EditorKeyOutcome::Handled
-        }
-        KeyCode::Tab => {
-            editor.insert_char('\t');
-            EditorKeyOutcome::Handled
-        }
-        _ => EditorKeyOutcome::Handled,
-    }
-}
-
-#[cfg(test)]
-mod editor_key_dispatch_tests {
-    use super::*;
-    use crate::app::editor::EditorState;
-
-    fn temp_editor(name: &str) -> EditorState {
-        let path = std::env::temp_dir().join(format!(
-            "casterm-tui-editor-dispatch-test-{}-{}-{name}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        EditorState::load(path).unwrap()
-    }
-
-    #[test]
-    fn ctrl_s_saves_and_reports_success() {
-        let mut editor = temp_editor("save.txt");
-        editor.insert_char('x');
-        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('s'), true);
-        assert_eq!(outcome, EditorKeyOutcome::Saved(Ok(())));
-        assert!(!editor.dirty());
-        std::fs::remove_file(editor.path()).unwrap();
-    }
-
-    #[test]
-    fn ctrl_x_exits() {
-        let mut editor = temp_editor("exit.txt");
-        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('x'), true);
-        assert_eq!(outcome, EditorKeyOutcome::Exit);
-    }
-
-    #[test]
-    fn plain_char_falls_through_to_insert() {
-        let mut editor = temp_editor("insert.txt");
-        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('a'), false);
-        assert_eq!(outcome, EditorKeyOutcome::Handled);
-        assert_eq!(editor.lines(), &["a".to_string()]);
-    }
-
-    #[test]
-    fn ctrl_char_other_than_s_or_x_falls_through_to_insert() {
-        // Only `s` and `x` are hint-bar bindings; every other Ctrl+letter
-        // still inserts non-modally rather than being silently swallowed.
-        let mut editor = temp_editor("ctrl-other.txt");
-        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('q'), true);
-        assert_eq!(outcome, EditorKeyOutcome::Handled);
-        assert_eq!(editor.lines(), &["q".to_string()]);
-    }
-
-    #[test]
-    fn enter_maps_to_newline() {
-        let mut editor = temp_editor("newline.txt");
-        editor.insert_char('a');
-        let outcome = dispatch_editor_key(&mut editor, KeyCode::Enter, false);
-        assert_eq!(outcome, EditorKeyOutcome::Handled);
-        assert_eq!(editor.lines(), &["a".to_string(), String::new()]);
-    }
-
-    #[test]
-    fn backspace_maps_to_backspace() {
-        let mut editor = temp_editor("backspace.txt");
-        editor.insert_char('a');
-        let outcome = dispatch_editor_key(&mut editor, KeyCode::Backspace, false);
-        assert_eq!(outcome, EditorKeyOutcome::Handled);
-        assert_eq!(editor.lines(), &[String::new()]);
-    }
-
-    #[test]
-    fn arrow_and_home_end_map_to_cursor_movement() {
-        let mut editor = temp_editor("move.txt");
-        for ch in "ab".chars() {
-            editor.insert_char(ch);
-        }
-        dispatch_editor_key(&mut editor, KeyCode::Home, false);
-        assert_eq!(editor.cursor(), (0, 0));
-        dispatch_editor_key(&mut editor, KeyCode::End, false);
-        assert_eq!(editor.cursor(), (0, 2));
-        dispatch_editor_key(&mut editor, KeyCode::Left, false);
-        assert_eq!(editor.cursor(), (0, 1));
-        dispatch_editor_key(&mut editor, KeyCode::Right, false);
-        assert_eq!(editor.cursor(), (0, 2));
-    }
-
-    #[test]
-    fn unmapped_key_is_a_no_op() {
-        let mut editor = temp_editor("unmapped.txt");
-        let outcome = dispatch_editor_key(&mut editor, KeyCode::F(5), false);
-        assert_eq!(outcome, EditorKeyOutcome::Handled);
-        assert_eq!(editor.lines(), &[String::new()]);
     }
 }
 

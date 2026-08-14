@@ -157,14 +157,13 @@ conversation"). Remove each line only once fully implemented.
   `apk` but not preinstalled), so this test can't assert a real device is
   always obtainable in CI.
 
-## Local file browser (Phases 1-4 of 6 done, `.claude/plans/inherited-painting-lark.md`)
+## Local file browser (Phases 1-5 of 6 done, `.claude/plans/inherited-painting-lark.md`)
 
 - Phase 1: shared-core infrastructure (`app::file_browser`, `app::editor`,
   `config::FileBrowserConfig`, the `Ctrl+T`-default toggle keybinding wired
   into both front ends' `dispatch_action`/`dispatch_key`).
   `app::editor::EditorState`/`ViewerContent`/`open_for_edit` carried a
-  targeted `#[allow(dead_code)]` until Phase 4 gave them real callers; the
-  GUI (Phase 5) still hands `FileKind::Text` off to the OS default app.
+  targeted `#[allow(dead_code)]` until Phase 4 gave them real callers.
 - Phase 2: TUI tree panel rendering (`ui::tui::file_browser::FileBrowserPanel`,
   a carved-out `Rect` on the left/right edge of `term_area`), key routing
   while the panel is focused (`j`/`k`/arrows move, `Enter`/`l`/Right
@@ -196,12 +195,34 @@ conversation"). Remove each line only once fully implemented.
   `FileKind::Text` entry now switches `TuiApp::viewer` from
   `ViewerContent::Tree` to `ViewerContent::Editor` (`Image`/`Other` are
   unchanged from Phase 2's OS-handoff path). Non-modal key routing via the
-  free function `dispatch_editor_key` (`ui::tui::mod`, unit-tested in
-  `editor_key_dispatch_tests` without constructing a full `TuiApp`):
-  `Ctrl+S` saves and shows a transient "Saved"/"Save failed: ..." status,
-  `Ctrl+X` exits back to the tree, every other key inserts/deletes/moves
-  the cursor non-modally, and the panel's own toggle key still closes the
-  whole panel from inside the editor.
+  free function `dispatch_editor_key` (`app::editor`, shared with the GUI
+  editor since both front ends' key events are `crossterm::event::KeyCode`
+  — relocated there from `ui::tui::mod` while building Phase 5 rather than
+  duplicated a second time, per PART 2's shared-core rule; unit-tested in
+  `app::editor::tests` without constructing a full `TuiApp`): `Ctrl+S`
+  saves and shows a transient "Saved"/"Save failed: ..." status, `Ctrl+X`
+  exits back to the tree, every other key inserts/deletes/moves the cursor
+  non-modally, and the panel's own toggle key still closes the whole panel
+  from inside the editor.
+- Phase 5: GUI text editor (`Renderer::push_editor_panel` +
+  `editor_panel_rows` in `src/ui/gui/renderer.rs`, mirroring Phase 3's
+  panel-in-`renderer.rs` precedent — no separate `src/ui/gui/editor.rs`).
+  Unlike the tree panel, the editor takes over the *full* window instead
+  of a narrow strip (a 30-column panel is unusably narrow for editing): a
+  header row (file name + `[Modified]`), the scrollable text area, and a
+  bottom key-hint bar, all as glyph/solid quads verbatim-matching Phase
+  4's TUI hint text (`^S Save  ^X Exit  ^T Close Panel`). Selecting a
+  `FileKind::Text` entry switches `WindowState::viewer` to
+  `ViewerContent::Editor` exactly like the TUI, hides the tree panel and
+  frees its reserved terminal-grid width for the duration
+  (`file_browser_panel_px`/`recompute_terminal_grid` now check
+  `viewer.is_tree()`), and key routing swallows into the shared
+  `app::editor::dispatch_editor_key` via a new
+  `WindowState::handle_editor_key`. GUI mouse click-to-position-cursor is
+  deferred, matching the tree panel's keyboard-only MVP scope.
+  Unit-tested only via the smoke-test precedent (headless wgpu instance);
+  the `editor_panel_rows` scroll/truncation math is covered directly
+  (no-wgpu pure function, same pattern as `file_browser_panel_rows`).
 - `.gitignore`-aware tree filtering — needs the `ignore` crate, not
   currently a dependency.
 - File-type icons / nerd-font glyphs in the tree.

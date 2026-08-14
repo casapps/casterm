@@ -20,7 +20,7 @@ use crate::support::error::{CastermError, Result};
 use crate::ui::render_model::{cursor_style, encode_key, resolve_grid, Rgb};
 
 use super::input::{to_key_code, to_key_modifiers};
-use super::renderer::{FileBrowserPanelView, Renderer, Selection};
+use super::renderer::{EditorPanelView, FileBrowserPanelView, Renderer, Selection};
 
 /// Redraw/PTY-poll cadence — matches the TUI event loop's own 16ms poll
 /// interval (roughly 60Hz) so PTY output feels equally responsive in both
@@ -52,6 +52,13 @@ struct WindowState {
     file_browser_show_hidden: bool,
     file_browser_width: u16,
     file_browser_position: FileBrowserPosition,
+    /// Which panel content is showing while `file_browser` is open — the
+    /// tree, or the built-in editor for a selected `FileKind::Text` entry.
+    /// See `.claude/plans/inherited-painting-lark.md` phase 5.
+    viewer: crate::app::file_browser::ViewerContent,
+    /// Transient status message shown in the editor's hint-bar row (e.g.
+    /// "Saved" or a save error) in place of the default key hints.
+    editor_status: Option<String>,
 }
 
 impl WindowState {
@@ -124,6 +131,8 @@ impl WindowState {
                             ))
                         }
                     };
+                    self.viewer = crate::app::file_browser::ViewerContent::Tree;
+                    self.editor_status = None;
                     // Toggling doesn't fire a `WindowEvent::Resized`, so the
                     // terminal's cols/rows (which shrink to make room for
                     // the panel) need an explicit recompute here.
@@ -136,9 +145,13 @@ impl WindowState {
             // bound action (notably the toggle key itself, handled above)
             // is swallowed by the panel instead of falling through to PTY
             // passthrough — same "swallow while active" precedent as the
-            // TUI's `handle_file_browser_key`.
+            // TUI's `handle_file_browser_key`/`handle_editor_key`.
             Resolved::NoMatch if self.file_browser.is_some() => {
-                self.handle_file_browser_key(code)?;
+                if self.viewer.is_tree() {
+                    self.handle_file_browser_key(code)?;
+                } else {
+                    self.handle_editor_key(code)?;
+                }
                 Ok(false)
             }
             Resolved::NoMatch if mid_sequence => Ok(false),
@@ -191,9 +204,10 @@ impl WindowState {
     }
 
     /// Act on the currently-selected file-browser entry: expand/collapse a
-    /// directory, or classify and hand a file off to the OS default
-    /// application. Every non-directory `FileKind` takes the OS-handoff
-    /// path in this phase, matching the TUI's Phase 2 behavior exactly.
+    /// directory, switch to the built-in editor for `FileKind::Text`
+    /// (Phase 5), or hand everything else off to the OS default
+    /// application. Mirrors `ui::tui::mod::TuiApp::open_selected_file_browser_entry`
+    /// exactly. Image viewing narrows further in Phase 6.
     fn open_selected_file_browser_entry(&mut self) -> Result<()> {
         let Some(browser) = self.file_browser.as_mut() else {
             return Ok(());
@@ -208,18 +222,58 @@ impl WindowState {
         let path = entry.path.clone();
         match crate::app::file_browser::classify_path(&path) {
             crate::app::file_browser::FileKind::Directory => Ok(()),
-            crate::app::file_browser::FileKind::Text
-            | crate::app::file_browser::FileKind::Image
+            crate::app::file_browser::FileKind::Text => {
+                let editor = crate::app::file_browser::open_for_edit(&path)?;
+                self.viewer = crate::app::file_browser::ViewerContent::Editor(editor);
+                self.editor_status = None;
+                // The editor takes over the full window instead of the
+                // narrow tree-panel strip, so the terminal grid's reserved
+                // pixel width (and thus its cols/rows) changes here too.
+                self.recompute_terminal_grid_from_window();
+                Ok(())
+            }
+            crate::app::file_browser::FileKind::Image
             | crate::app::file_browser::FileKind::Other => {
                 crate::platform::Platform::open_with_default_app(&path)
             }
         }
     }
 
-    /// Pixel width currently reserved for the file-browser panel — zero
-    /// when it's closed.
+    /// Handle a key event while the built-in editor has focus. Delegates to
+    /// the shared `app::editor::dispatch_editor_key` (same dispatch table
+    /// as the TUI's `handle_editor_key`, since both front ends' key events
+    /// are `crossterm::event::KeyCode`). The panel's own toggle key closes
+    /// the whole panel (handled earlier in `dispatch_key`, before this is
+    /// reached).
+    fn handle_editor_key(&mut self, code: crossterm::event::KeyCode) -> Result<()> {
+        let crate::app::file_browser::ViewerContent::Editor(editor) = &mut self.viewer else {
+            return Ok(());
+        };
+        let mods = to_key_modifiers(self.modifiers);
+        let ctrl = mods.contains(crossterm::event::KeyModifiers::CONTROL);
+        match crate::app::editor::dispatch_editor_key(editor, code, ctrl) {
+            crate::app::editor::EditorKeyOutcome::Handled => self.editor_status = None,
+            crate::app::editor::EditorKeyOutcome::Saved(Ok(())) => {
+                self.editor_status = Some("Saved".to_string());
+            }
+            crate::app::editor::EditorKeyOutcome::Saved(Err(e)) => {
+                self.editor_status = Some(format!("Save failed: {e}"));
+            }
+            crate::app::editor::EditorKeyOutcome::Exit => {
+                self.viewer = crate::app::file_browser::ViewerContent::Tree;
+                self.editor_status = None;
+                self.recompute_terminal_grid_from_window();
+            }
+        }
+        Ok(())
+    }
+
+    /// Pixel width currently reserved for the file-browser tree panel —
+    /// zero when it's closed, and also zero while the built-in editor is
+    /// showing (Phase 5) since the editor takes over the full window
+    /// instead of sharing the narrow tree-panel strip.
     fn file_browser_panel_px(&self) -> f32 {
-        if self.file_browser.is_some() {
+        if self.file_browser.is_some() && self.viewer.is_tree() {
             self.file_browser_width as f32 * self.renderer.cell_size().0
         } else {
             0.0
@@ -297,32 +351,49 @@ impl WindowState {
             browser.set_scroll_offset(new_offset);
         }
 
-        let (term_x_offset, panel_view) = if let Some(browser) = self.file_browser.as_ref() {
-            let (fr, fgg, fb) = self.theme.fg_rgb();
-            let (sel_r, sel_g, sel_b) = self.theme.ansi_color(4);
-            let (sel_fg_r, sel_fg_g, sel_fg_b) = self.theme.bg_rgb();
-            let x = match self.file_browser_position {
-                FileBrowserPosition::Left => 0.0,
-                FileBrowserPosition::Right => win_width - panel_px,
+        let (term_x_offset, panel_view) =
+            if let Some(browser) = self.file_browser.as_ref().filter(|_| self.viewer.is_tree()) {
+                let (fr, fgg, fb) = self.theme.fg_rgb();
+                let (sel_r, sel_g, sel_b) = self.theme.ansi_color(4);
+                let (sel_fg_r, sel_fg_g, sel_fg_b) = self.theme.bg_rgb();
+                let x = match self.file_browser_position {
+                    FileBrowserPosition::Left => 0.0,
+                    FileBrowserPosition::Right => win_width - panel_px,
+                };
+                let term_offset = match self.file_browser_position {
+                    FileBrowserPosition::Left => panel_px,
+                    FileBrowserPosition::Right => 0.0,
+                };
+                (
+                    term_offset,
+                    Some(FileBrowserPanelView {
+                        state: browser,
+                        x,
+                        width: panel_px,
+                        fg: Rgb(fr, fgg, fb),
+                        selected_bg: Rgb(sel_r, sel_g, sel_b),
+                        selected_fg: Rgb(sel_fg_r, sel_fg_g, sel_fg_b),
+                    }),
+                )
+            } else {
+                (0.0, None)
             };
-            let term_offset = match self.file_browser_position {
-                FileBrowserPosition::Left => panel_px,
-                FileBrowserPosition::Right => 0.0,
-            };
-            (
-                term_offset,
-                Some(FileBrowserPanelView {
-                    state: browser,
-                    x,
-                    width: panel_px,
+
+        let editor_view =
+            if let crate::app::file_browser::ViewerContent::Editor(editor) = &self.viewer {
+                let (fr, fgg, fb) = self.theme.fg_rgb();
+                let (bar_r, bar_g, bar_b) = self.theme.ansi_color(4);
+                let (bar_fg_r, bar_fg_g, bar_fg_b) = self.theme.bg_rgb();
+                Some(EditorPanelView {
+                    state: editor,
+                    status: self.editor_status.as_deref(),
                     fg: Rgb(fr, fgg, fb),
-                    selected_bg: Rgb(sel_r, sel_g, sel_b),
-                    selected_fg: Rgb(sel_fg_r, sel_fg_g, sel_fg_b),
-                }),
-            )
-        } else {
-            (0.0, None)
-        };
+                    bar_bg: Rgb(bar_r, bar_g, bar_b),
+                    bar_fg: Rgb(bar_fg_r, bar_fg_g, bar_fg_b),
+                })
+            } else {
+                None
+            };
 
         self.renderer.render(
             &cells,
@@ -336,6 +407,7 @@ impl WindowState {
             Rgb(cr, cg, cb),
             term_x_offset,
             panel_view,
+            editor_view,
         )
     }
 
@@ -446,6 +518,8 @@ impl ApplicationHandler for GuiApp {
             file_browser_show_hidden: self.config.file_browser.show_hidden,
             file_browser_width: self.config.file_browser.width,
             file_browser_position: self.config.file_browser.position,
+            viewer: crate::app::file_browser::ViewerContent::Tree,
+            editor_status: None,
         });
 
         event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + POLL_INTERVAL));
