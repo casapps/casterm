@@ -7,9 +7,9 @@
 //! `.claude/plans/inherited-painting-lark.md` for the full feature plan.
 //!
 //! Rendering/consumption is wired in Phase 2 (TUI, `ui::tui::file_browser`)
-//! and Phase 3 (GUI). `ViewerContent::Editor` and `open_for_edit` remain
-//! unused until Phase 4 wires the built-in editor in; see the `dead_code`
-//! allow below on just that part.
+//! and Phase 3 (GUI). `ViewerContent::Editor` and `open_for_edit` are wired
+//! into the TUI in Phase 4 (`ui::tui::editor`); the GUI editor lands in
+//! Phase 5.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -241,25 +241,22 @@ impl FileBrowserState {
 /// Content currently shown in the file-browser panel: the tree itself, or —
 /// once a file has been opened — the built-in editor/viewer for it.
 ///
-/// Unused until Phase 4 (`.claude/plans/inherited-painting-lark.md`) wires
-/// the built-in editor into the TUI; both front ends currently hand every
-/// non-directory entry off to the OS default application (Phase 2/3).
-#[allow(dead_code)]
+/// Wired into the TUI in Phase 4
+/// (`.claude/plans/inherited-painting-lark.md`); the GUI (Phase 5) still
+/// hands every non-directory entry off to the OS default application.
 pub enum ViewerContent {
     Tree,
     Editor(super::editor::EditorState),
 }
 
-#[allow(dead_code)]
 impl ViewerContent {
     pub fn is_tree(&self) -> bool {
         matches!(self, ViewerContent::Tree)
     }
 }
 
-/// Open `path` for editing, loading it into a fresh `EditorState`. Unused
-/// until Phase 4/5 wire the built-in editor into a front end.
-#[allow(dead_code)]
+/// Open `path` for editing, loading it into a fresh `EditorState`. Used by
+/// the TUI since Phase 4; the GUI (Phase 5) will call this too.
 pub fn open_for_edit(path: &Path) -> Result<super::editor::EditorState> {
     super::editor::EditorState::load(path.to_path_buf())
 }

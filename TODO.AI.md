@@ -157,14 +157,14 @@ conversation"). Remove each line only once fully implemented.
   `apk` but not preinstalled), so this test can't assert a real device is
   always obtainable in CI.
 
-## Local file browser (Phases 1-3 of 6 done, `.claude/plans/inherited-painting-lark.md`)
+## Local file browser (Phases 1-4 of 6 done, `.claude/plans/inherited-painting-lark.md`)
 
 - Phase 1: shared-core infrastructure (`app::file_browser`, `app::editor`,
   `config::FileBrowserConfig`, the `Ctrl+T`-default toggle keybinding wired
   into both front ends' `dispatch_action`/`dispatch_key`).
-  `app::editor::EditorState`/`ViewerContent`/`open_for_edit` still carry a
-  targeted `#[allow(dead_code)]` until Phase 4 (TUI editor)/Phase 5 (GUI
-  editor) give them real callers; remove those attributes once wired in.
+  `app::editor::EditorState`/`ViewerContent`/`open_for_edit` carried a
+  targeted `#[allow(dead_code)]` until Phase 4 gave them real callers; the
+  GUI (Phase 5) still hands `FileKind::Text` off to the OS default app.
 - Phase 2: TUI tree panel rendering (`ui::tui::file_browser::FileBrowserPanel`,
   a carved-out `Rect` on the left/right edge of `term_area`), key routing
   while the panel is focused (`j`/`k`/arrows move, `Enter`/`l`/Right
@@ -189,6 +189,19 @@ conversation"). Remove each line only once fully implemented.
   double-click-to-open in the GUI panel is deferred — MVP is
   keyboard-only, matching the existing GUI mouse support's scope
   (terminal-cell selection only).
+- Phase 4: TUI text editor (`ui::tui::editor::EditorPanel`, a nano-style
+  header row showing the file name plus `[Modified]` while
+  `EditorState::dirty()`, a scrollable text area that keeps the cursor row
+  in view, and a bottom key-hint bar/status line). Selecting a
+  `FileKind::Text` entry now switches `TuiApp::viewer` from
+  `ViewerContent::Tree` to `ViewerContent::Editor` (`Image`/`Other` are
+  unchanged from Phase 2's OS-handoff path). Non-modal key routing via the
+  free function `dispatch_editor_key` (`ui::tui::mod`, unit-tested in
+  `editor_key_dispatch_tests` without constructing a full `TuiApp`):
+  `Ctrl+S` saves and shows a transient "Saved"/"Save failed: ..." status,
+  `Ctrl+X` exits back to the tree, every other key inserts/deletes/moves
+  the cursor non-modally, and the panel's own toggle key still closes the
+  whole panel from inside the editor.
 - `.gitignore`-aware tree filtering — needs the `ignore` crate, not
   currently a dependency.
 - File-type icons / nerd-font glyphs in the tree.

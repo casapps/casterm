@@ -1,5 +1,6 @@
 //! TUI mode using ratatui + crossterm with full PTY-backed terminal emulation
 
+mod editor;
 mod file_browser;
 
 use std::collections::HashMap;
@@ -40,6 +41,7 @@ use crate::state::{PaneState, WindowState};
 use crate::support::error::{CastermError, Result};
 use crate::ui::render_model::{encode_key, resolve_grid, Rgb};
 
+use editor::EditorPanel;
 use file_browser::FileBrowserPanel;
 
 /// Convert a live window + its running panes into a serializable
@@ -117,6 +119,14 @@ struct TuiApp {
     /// a carved-out region alongside pane rendering (not part of the pane
     /// layout tree) — see `.claude/plans/inherited-painting-lark.md`.
     file_browser: Option<crate::app::file_browser::FileBrowserState>,
+    /// What the panel is currently showing: the tree, or (Phase 4) the
+    /// built-in editor for a `FileKind::Text` file opened from the tree.
+    /// Reset to `Tree` whenever the panel closes.
+    viewer: crate::app::file_browser::ViewerContent,
+    /// Transient status message shown in the editor's bottom key-hint bar
+    /// in place of the hint text (e.g. after `Ctrl+S`) — cleared on the
+    /// next key press.
+    editor_status: Option<String>,
 }
 
 impl TuiApp {
@@ -226,6 +236,8 @@ impl TuiApp {
             hostname,
             should_quit: false,
             file_browser: None,
+            viewer: crate::app::file_browser::ViewerContent::Tree,
+            editor_status: None,
         })
     }
 
@@ -450,7 +462,11 @@ impl TuiApp {
             if let Resolved::Action(action) = self.keymap.resolve(key.modifiers, key.code) {
                 return self.dispatch_action(&action);
             }
-            return self.handle_file_browser_key(key);
+            return if self.viewer.is_tree() {
+                self.handle_file_browser_key(key)
+            } else {
+                self.handle_editor_key(key)
+            };
         }
 
         // A sequence already in progress (or locked mode) means an
@@ -508,10 +524,9 @@ impl TuiApp {
     }
 
     /// Act on the currently-selected file-browser entry: expand/collapse a
-    /// directory, or classify and hand a file off to the OS default
-    /// application. Every non-directory `FileKind` takes the OS-handoff path
-    /// in this phase — the built-in text editor (Phase 4) and image viewer
-    /// (Phase 6) narrow this down to just `Other` in later phases.
+    /// directory, switch to the built-in editor for `FileKind::Text`
+    /// (Phase 4), or hand everything else off to the OS default
+    /// application. Image viewing narrows further in Phase 6.
     fn open_selected_file_browser_entry(&mut self) -> Result<()> {
         let Some(browser) = self.file_browser.as_mut() else {
             return Ok(());
@@ -526,12 +541,48 @@ impl TuiApp {
         let path = entry.path.clone();
         match crate::app::file_browser::classify_path(&path) {
             crate::app::file_browser::FileKind::Directory => Ok(()),
-            crate::app::file_browser::FileKind::Text
-            | crate::app::file_browser::FileKind::Image
+            crate::app::file_browser::FileKind::Text => {
+                let editor = crate::app::file_browser::open_for_edit(&path)?;
+                self.viewer = crate::app::file_browser::ViewerContent::Editor(editor);
+                self.editor_status = None;
+                Ok(())
+            }
+            crate::app::file_browser::FileKind::Image
             | crate::app::file_browser::FileKind::Other => {
                 crate::platform::Platform::open_with_default_app(&path)
             }
         }
+    }
+
+    /// Handle a key event while the built-in editor has focus. Delegates
+    /// the actual dispatch table to the free function `dispatch_editor_key`
+    /// (no `TuiApp` dependency) so the routing logic — which hint-bar
+    /// binding maps to which `EditorState` call, and that unmapped keys
+    /// fall through to `insert_char` — is unit-testable without
+    /// constructing a full `TuiApp` (which spawns a real PTY pane). The
+    /// panel's own toggle key closes the whole panel (handled earlier in
+    /// `handle_key`, before this is reached).
+    fn handle_editor_key(&mut self, key: KeyEvent) -> Result<()> {
+        let crate::app::file_browser::ViewerContent::Editor(editor) = &mut self.viewer else {
+            return Ok(());
+        };
+        let ctrl = key
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL);
+        match dispatch_editor_key(editor, key.code, ctrl) {
+            EditorKeyOutcome::Handled => self.editor_status = None,
+            EditorKeyOutcome::Saved(Ok(())) => {
+                self.editor_status = Some("Saved".to_string());
+            }
+            EditorKeyOutcome::Saved(Err(e)) => {
+                self.editor_status = Some(format!("Save failed: {e}"));
+            }
+            EditorKeyOutcome::Exit => {
+                self.viewer = crate::app::file_browser::ViewerContent::Tree;
+                self.editor_status = None;
+            }
+        }
+        Ok(())
     }
 
     /// Interpret a resolved keybinding action name. Actions not backed by a
@@ -567,10 +618,184 @@ impl TuiApp {
                         ))
                     }
                 };
+                self.viewer = crate::app::file_browser::ViewerContent::Tree;
+                self.editor_status = None;
                 Ok(())
             }
             _ => Ok(()),
         }
+    }
+}
+
+/// What happened when a key was routed into the editor via
+/// `dispatch_editor_key`, so `TuiApp::handle_editor_key` can update its own
+/// `viewer`/`editor_status` fields without duplicating the dispatch table.
+#[derive(Debug, PartialEq)]
+enum EditorKeyOutcome {
+    /// The key was handled entirely inside `EditorState` (edit, cursor
+    /// move, or an unmapped key that fell through to nothing).
+    Handled,
+    /// `Ctrl+S`: buffer saved (`Ok`) or failed (`Err` with a message).
+    Saved(std::result::Result<(), String>),
+    /// `Ctrl+X`: exit the editor back to the tree view.
+    Exit,
+}
+
+/// Route one key event into `EditorState`'s edit methods — the nano-style
+/// hint-bar bindings (`Ctrl+S` save, `Ctrl+X` exit) plus non-modal
+/// insert/delete/navigate for everything else. A free function (no
+/// `TuiApp`) so the dispatch table itself is unit-testable without
+/// constructing a full `TuiApp`.
+fn dispatch_editor_key(
+    editor: &mut crate::app::editor::EditorState,
+    code: KeyCode,
+    ctrl: bool,
+) -> EditorKeyOutcome {
+    match code {
+        KeyCode::Char('s') if ctrl => {
+            EditorKeyOutcome::Saved(editor.save().map_err(|e| e.to_string()))
+        }
+        KeyCode::Char('x') if ctrl => EditorKeyOutcome::Exit,
+        KeyCode::Char(ch) => {
+            editor.insert_char(ch);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Enter => {
+            editor.newline();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Backspace => {
+            editor.backspace();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Delete => {
+            editor.delete_forward();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Left => {
+            editor.move_cursor(0, -1);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Right => {
+            editor.move_cursor(0, 1);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Up => {
+            editor.move_cursor(-1, 0);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Down => {
+            editor.move_cursor(1, 0);
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Home => {
+            editor.move_home();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::End => {
+            editor.move_end();
+            EditorKeyOutcome::Handled
+        }
+        KeyCode::Tab => {
+            editor.insert_char('\t');
+            EditorKeyOutcome::Handled
+        }
+        _ => EditorKeyOutcome::Handled,
+    }
+}
+
+#[cfg(test)]
+mod editor_key_dispatch_tests {
+    use super::*;
+    use crate::app::editor::EditorState;
+
+    fn temp_editor(name: &str) -> EditorState {
+        let path = std::env::temp_dir().join(format!(
+            "casterm-tui-editor-dispatch-test-{}-{}-{name}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        EditorState::load(path).unwrap()
+    }
+
+    #[test]
+    fn ctrl_s_saves_and_reports_success() {
+        let mut editor = temp_editor("save.txt");
+        editor.insert_char('x');
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('s'), true);
+        assert_eq!(outcome, EditorKeyOutcome::Saved(Ok(())));
+        assert!(!editor.dirty());
+        std::fs::remove_file(editor.path()).unwrap();
+    }
+
+    #[test]
+    fn ctrl_x_exits() {
+        let mut editor = temp_editor("exit.txt");
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('x'), true);
+        assert_eq!(outcome, EditorKeyOutcome::Exit);
+    }
+
+    #[test]
+    fn plain_char_falls_through_to_insert() {
+        let mut editor = temp_editor("insert.txt");
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('a'), false);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &["a".to_string()]);
+    }
+
+    #[test]
+    fn ctrl_char_other_than_s_or_x_falls_through_to_insert() {
+        // Only `s` and `x` are hint-bar bindings; every other Ctrl+letter
+        // still inserts non-modally rather than being silently swallowed.
+        let mut editor = temp_editor("ctrl-other.txt");
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Char('q'), true);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &["q".to_string()]);
+    }
+
+    #[test]
+    fn enter_maps_to_newline() {
+        let mut editor = temp_editor("newline.txt");
+        editor.insert_char('a');
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Enter, false);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &["a".to_string(), String::new()]);
+    }
+
+    #[test]
+    fn backspace_maps_to_backspace() {
+        let mut editor = temp_editor("backspace.txt");
+        editor.insert_char('a');
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::Backspace, false);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &[String::new()]);
+    }
+
+    #[test]
+    fn arrow_and_home_end_map_to_cursor_movement() {
+        let mut editor = temp_editor("move.txt");
+        for ch in "ab".chars() {
+            editor.insert_char(ch);
+        }
+        dispatch_editor_key(&mut editor, KeyCode::Home, false);
+        assert_eq!(editor.cursor(), (0, 0));
+        dispatch_editor_key(&mut editor, KeyCode::End, false);
+        assert_eq!(editor.cursor(), (0, 2));
+        dispatch_editor_key(&mut editor, KeyCode::Left, false);
+        assert_eq!(editor.cursor(), (0, 1));
+        dispatch_editor_key(&mut editor, KeyCode::Right, false);
+        assert_eq!(editor.cursor(), (0, 2));
+    }
+
+    #[test]
+    fn unmapped_key_is_a_no_op() {
+        let mut editor = temp_editor("unmapped.txt");
+        let outcome = dispatch_editor_key(&mut editor, KeyCode::F(5), false);
+        assert_eq!(outcome, EditorKeyOutcome::Handled);
+        assert_eq!(editor.lines(), &[String::new()]);
     }
 }
 
@@ -1220,14 +1445,30 @@ fn run_app<B: Backend + std::io::Write>(
                     );
                 }
 
-                if let (Some(fb), Some(panel)) = (app.file_browser.as_ref(), panel_area) {
-                    frame.render_widget(
-                        FileBrowserPanel {
-                            state: fb,
-                            theme: &app.theme,
-                        },
-                        panel,
-                    );
+                if let Some(panel) = panel_area {
+                    match &app.viewer {
+                        crate::app::file_browser::ViewerContent::Tree => {
+                            if let Some(fb) = app.file_browser.as_ref() {
+                                frame.render_widget(
+                                    FileBrowserPanel {
+                                        state: fb,
+                                        theme: &app.theme,
+                                    },
+                                    panel,
+                                );
+                            }
+                        }
+                        crate::app::file_browser::ViewerContent::Editor(editor) => {
+                            frame.render_widget(
+                                EditorPanel {
+                                    state: editor,
+                                    theme: &app.theme,
+                                    status: app.editor_status.as_deref(),
+                                },
+                                panel,
+                            );
+                        }
+                    }
                 }
             })
             .map_err(|e| CastermError::Tui(e.to_string()))?;

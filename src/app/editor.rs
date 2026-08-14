@@ -5,12 +5,8 @@
 //! `ui::gui::editor`) translate their own key events into these methods so
 //! the actual buffer-editing logic isn't duplicated between them.
 //!
-//! Landed in Phase 1 of `.claude/plans/inherited-painting-lark.md` with no
-//! caller yet — wired into the TUI in Phase 4 and the GUI in Phase 5.
-//! `#[allow(dead_code)]` is intentional and temporary; remove once those
-//! phases land.
-
-#![allow(dead_code)]
+//! Landed in Phase 1 of `.claude/plans/inherited-painting-lark.md`; wired
+//! into the TUI in Phase 4 (`ui::tui::editor`) and the GUI in Phase 5.
 
 use std::path::PathBuf;
 
