@@ -2,7 +2,7 @@
 
 **Name**: {project_name}
 
-**About this file:** `TEMPLATE.md` is the master template. When applied to a project, this file is copied (or symlinked) into the project as `AI.md`. Throughout this document, all references to `AI.md` refer to that resulting file in a real project.
+**About this file:** `AI.md` is the complete, authoritative specification for this project.
 
 **Note:** `{PROJECT_NAME}` and `{project_name}` in this file are reference tokens, not setup-time text replacements. Their values are resolved from `IDEA.md ## Project variables` while `AI.md` remains read-only.
 
@@ -22,8 +22,8 @@ IDEA.md is the project PLAN. AI.md (this file) is the SOURCE OF TRUTH.
 
 | File | Role | Update When |
 |------|------|-------------|
-| **AI.md** | SOURCE OF TRUTH - implementation rules (readonly template copy) | No — use SPEC.md for project-specific rule overrides |
-| **SPEC.md** | Project-specific rule overrides — created only when a rule must contradict the template or global. May be empty. SPEC.md wins over AI.md. | When a project rule must differ from the template or global |
+| **AI.md** | SOURCE OF TRUTH - implementation rules (readonly) | No — use SPEC.md for project-specific rule overrides |
+| **SPEC.md** | Project-specific rule overrides — created only when a rule must contradict this specification or global. May be empty. SPEC.md wins over AI.md. | When a project rule must differ from this specification or global |
 | **IDEA.md** | PROJECT PLAN - must follow AI.md | Features change, project variables change |
 
 **Rule hierarchy:** SPEC.md > AI.md > global CLAUDE.md. If SPEC.md and AI.md conflict, SPEC.md wins — that is its purpose.
@@ -72,13 +72,13 @@ security assumptions, and any exceptions.)
 
 **Rules for `## Business logic`:**
 - It MUST define the actual product scope for THIS project - not generic boilerplate
-- It MUST state which app surfaces exist: GUI, TUI, CLI, or a subset
+- It MUST state which app surfaces exist: GUI, TUI, CLI, or a subset — and whether the project is an RFC protocol daemon (PART 14)
 - It MUST define user flows, stored data, trust boundaries, abuse cases, and platform constraints
 - If a security-sensitive choice is intentionally allowed, the reason MUST be documented there
 
 ## Migrating Existing `CLAUDE.md` Into `IDEA.md`
 
-**If a repository already has a pre-template `CLAUDE.md` or `.claude/CLAUDE.md` with real project details, those project details MUST be migrated into `IDEA.md`.**
+**If a repository already has a pre-existing `CLAUDE.md` or `.claude/CLAUDE.md` with real project details, those project details MUST be migrated into `IDEA.md`.**
 
 **What belongs in `IDEA.md`:**
 - project description / elevator pitch
@@ -141,7 +141,7 @@ Update these when their subject changes:
 
 ## ⚠️ CRITICAL: One Coherent Product
 
-This template defines **one Rust application** with shared core logic and up to three presentation layers:
+This specification defines **one Rust application** with shared core logic and up to three presentation layers:
 - GUI (preferred when available)
 - TUI (fallback for interactive terminals)
 - CLI (fallback for non-interactive/plain execution)
@@ -243,8 +243,8 @@ The single binary contains **everything the app needs to function**. The user is
 
 | File | Purpose | Update When |
 |------|---------|-------------|
-| **AI.md** | Implementation spec (HOW) - SOURCE OF TRUTH, readonly template copy | No — use SPEC.md for project-specific rule overrides |
-| **SPEC.md** | Project-specific rule overrides (optional, may be empty) | When a project rule must contradict the template or global |
+| **AI.md** | Implementation spec (HOW) - SOURCE OF TRUTH, readonly | No — use SPEC.md for project-specific rule overrides |
+| **SPEC.md** | Project-specific rule overrides (optional, may be empty) | When a project rule must contradict this specification or global |
 | **IDEA.md** | Project plan (WHAT) | Features or variables change |
 | **TODO.AI.md** | Task tracking (AI-owned) | Tasks added/completed |
 | **TODO.md** | Task tracking (human-owned) | AI may mark done; never delete/empty |
@@ -276,7 +276,7 @@ The single binary contains **everything the app needs to function**. The user is
 
 **AI MUST verify its own work with real tools before reporting a task as done. Do not rely on "the code looks right."**
 
-**This rule applies to EVERY change type covered by this template — library/API logic, GUI/TUI/CLI binaries, single-static-binary build, asset embedding, Docker, CI/CD, configuration, documentation, security — not only one category.** Whatever you touched, you verify.
+**This rule applies to EVERY change type covered by this specification — library/API logic, GUI/TUI/CLI binaries, single-static-binary build, asset embedding, Docker, CI/CD, configuration, documentation, security — not only one category.** Whatever you touched, you verify.
 
 Getting code correct on the first try is much harder than iterating with feedback. Close the loop every time. All execution goes through the project's containerised targets — never bare host cargo.
 
@@ -321,12 +321,15 @@ Getting code correct on the first try is much harder than iterating with feedbac
 
 ## Product Model
 
-This template targets a **single-binary, fully self-contained Rust application** that may expose:
+This specification targets a **single-binary, fully self-contained Rust application** that may expose:
 - a native GUI
 - a terminal UI (TUI)
 - a plain CLI
+- an **RFC protocol server (daemon)** — conditional; only when IDEA.md declares it (PART 14)
 
 The application may make outbound network calls to consume remote services it depends on (APIs, databases, object stores, update endpoints, etc.).
+
+**Listening sockets are allowed only in daemon mode** — a project that accepts inbound connections MUST satisfy PART 14; otherwise the application opens no listening sockets.
 
 **Distribution model:** one statically linked binary per supported target. Everything the app needs at runtime — UI assets, fonts, icons, default config, schemas, templates, locales — is embedded inside that binary. See PART 0 → "Single Static Binary" and "Self-Contained Assets."
 
@@ -399,7 +402,7 @@ Distribution artifact names follow the schema:
 **Other rules:**
 - Local (in-tree) primary binary name: `{project_name}` (no platform/arch suffix during local development inside the Docker image)
 - If optional helper binaries exist, use `{project_name}-{tool}` for the in-tree name and `{project_name}-{tool}-{platform}-{arch}{.ext}` for distribution
-- Checksum files mirror the artifact name plus `.sha256` (e.g., `{project_name}-linux-amd64.sha256`)
+- Checksums are published as two aggregate files per release — `sha256.txt` and `sha512.txt` — covering every artifact in standard `sha256sum`/`sha512sum` format (`{hash}  {filename}` per line); never per-artifact sidecar files
 
 **Single-binary rule:** the default user experience is "download one file, run it." The primary binary MUST be self-sufficient (PART 0 → "Self-Contained Assets"). Helper binaries are not a substitute for putting features into the primary binary; if a feature can live behind a CLI subcommand of the primary binary, it MUST.
 
@@ -574,10 +577,10 @@ Prefer platform-standard user directories:
 
 | Purpose | Linux / BSD | macOS | Windows |
 |---------|-------------|-------|---------|
-| Config | `~/.config/{internal_org}/{internal_name}/` | `~/Library/Application Support/{internal_name}/config/` | `%AppData%\\{internal_org}\\{internal_name}\\config\\` |
-| Data | `~/.local/share/{internal_org}/{internal_name}/` | `~/Library/Application Support/{internal_name}/data/` | `%LocalAppData%\\{internal_org}\\{internal_name}\\data\\` |
-| Cache | `~/.cache/{internal_org}/{internal_name}/` | `~/Library/Caches/{internal_name}/` | `%LocalAppData%\\{internal_org}\\{internal_name}\\cache\\` |
-| Logs | `~/.local/state/{internal_org}/{internal_name}/logs/` | `~/Library/Logs/{internal_name}/` | `%LocalAppData%\\{internal_org}\\{internal_name}\\logs\\` |
+| Config | `~/.config/{internal_org}/{internal_name}/` | `~/Library/Application Support/{internal_org}/{internal_name}/config/` | `%AppData%\\{internal_org}\\{internal_name}\\config\\` |
+| Data | `~/.local/share/{internal_org}/{internal_name}/` | `~/Library/Application Support/{internal_org}/{internal_name}/data/` | `%LocalAppData%\\{internal_org}\\{internal_name}\\data\\` |
+| Cache | `~/.cache/{internal_org}/{internal_name}/` | `~/Library/Caches/{internal_org}/{internal_name}/` | `%LocalAppData%\\{internal_org}\\{internal_name}\\cache\\` |
+| Logs | `~/.local/state/{internal_org}/{internal_name}/logs/` | `~/Library/Logs/{internal_org}/{internal_name}/` | `%LocalAppData%\\{internal_org}\\{internal_name}\\logs\\` |
 
 **Rule:** Both `{internal_name}` and `{internal_org}` anchor on-disk identifiers and stable OS-registered names (Bundle IDs, package IDs, dbus names, keychain entries, updater channels). A rename of `{project_name}` or `{project_org}` MUST NOT silently move user data or change those identifiers.
 
@@ -769,7 +772,7 @@ The `assets/` directory in the repo holds source files (fonts, icons, default th
 - Each release MUST publish artifacts for at minimum: `{project_name}-linux-amd64`, `{project_name}-linux-arm64`, `{project_name}-windows-amd64.exe`, `{project_name}-windows-arm64.exe`, `{project_name}-darwin-amd64`, `{project_name}-darwin-arm64` (subset acceptable only when IDEA.md narrows platform scope)
 - A static-linkage verification step is part of release: `ldd` / `otool -L` / `dumpbin /dependents` output is captured and checked against an allowlist (kernel vDSO, Apple system frameworks, Windows kernel32/user32 etc.) — anything outside the allowlist fails the release
 - No companion files (no `.so`, `.dylib`, `.dll`, no asset bundles, no font directories) ship next to the binary
-- Include SHA-256 checksums for every published artifact, named `{artifact}.sha256`
+- Include two aggregate checksum files covering every published artifact — `sha256.txt` (SHA-256) and `sha512.txt` (SHA-512), standard `{hash}  {filename}` format — uploaded as release assets; never per-artifact sidecar files
 - Include release notes that describe actual changes
 - Include an SBOM (always — generated via `cargo-cyclonedx`; see PART 10 → "Suggested CI Steps" for the invocation, PART 11 → "Required Tooling" for the tool pin). Include provenance/attestation via `actions/attest-build-provenance` when the release platform supports it; always set `provenance: false` on `docker/build-push-action` steps
 - If GUI packaging exists (MSI, DMG, AppImage, deb, rpm, etc.), the package wraps the same single static binary plus desktop integration metadata; package metadata lives in `packaging/`
@@ -787,7 +790,7 @@ docker/
 ├── Dockerfile                              # production runtime image — two-stage (builder + minimal Alpine/Debian); tagged :latest
 ├── Dockerfile.dev                          # devel image — same as release but binary runs in debug mode; tagged :devel   (project-specific)
 ├── rootfs/                                 # build-time filesystem overlay copied into image at /   (project-specific)
-│   └── usr/local/bin/entrypoint.sh         # sets non-root UID/GID, prepares cache/target dirs; called by tini → entrypoint.sh → app
+│   └── usr/local/bin/entrypoint.sh         # prepares cache/target dirs; user creation and privilege drop happen in the binary; called by tini → entrypoint.sh → app
 ├── docker-compose.yml                      # production/human runtime — image: ghcr.io/{org}/{name}:latest
 ├── docker-compose.dev.yml                  # human development — image: ghcr.io/{org}/{name}:devel
 ├── docker-compose.test.yml                 # automated testing — builds from Dockerfile, valkey cache w/ ephemeral tmpfs, named bridge net; AI prefers tests/ scripts over running this directly
@@ -839,6 +842,20 @@ All image metadata is applied as **OCI annotations at build time** — never as 
 
 See `dockerfile_conventions.md` → "OCI Annotations" for the full required annotation set (`org.opencontainers.image.{title,description,url,source,documentation,vendor,authors,vcs-type,version,revision,created,licenses,...}`).
 
+### Build-Time Metadata Args
+
+`docker/Dockerfile` declares `ARG BUILD_EPOCH` in the builder stage and exports it as an environment variable for the `cargo build` step, so `build.rs` embeds it (PART 6 → "Build Metadata"). `ARG BUILD_DATE` is declared only where it feeds the `org.opencontainers.image.created` value — it is never passed to the cargo build. The caller captures `BUILD_EPOCH` once, derives `BUILD_DATE` from it, and passes both:
+
+```bash
+# Captured ONCE; BUILD_DATE is derived from it, never independently captured
+BUILD_EPOCH="$(date -u +%s)"
+BUILD_DATE="$(date -u -d "@${BUILD_EPOCH}" +%Y-%m-%dT%H:%M:%SZ)"
+docker build -f docker/Dockerfile \
+  --build-arg BUILD_EPOCH="$BUILD_EPOCH" \
+  --build-arg BUILD_DATE="$BUILD_DATE" \
+  ...
+```
+
 ### Container Runtime Rules
 
 Every production image MUST satisfy:
@@ -846,17 +863,22 @@ Every production image MUST satisfy:
 - **Startup chain `tini → entrypoint.sh → app`** — `ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]`. Never override `ENTRYPOINT` or `CMD` to bypass `tini` or the entrypoint shim. All startup customization goes in `docker/rootfs/usr/local/bin/entrypoint.sh`, which MUST end with `exec "$@"` to preserve PID 1 signal handling.
 - **`STOPSIGNAL SIGTERM`** (or `SIGRTMIN+3` for s6-based images) for graceful shutdown
 - **`HEALTHCHECK`** — every production image declares a `HEALTHCHECK` that exits non-zero when the binary is unhealthy
-- **Non-root `USER`** — containers MUST NOT run as root. Create a non-root user/group in the Dockerfile and switch to it via `USER` before `ENTRYPOINT`. `entrypoint.sh` may remap UID/GID at runtime to match host ownership of mounted volumes. Exceptions (privileged port binding, device access, etc.) MUST be documented in `IDEA.md`.
+- **Privilege drop, not Dockerfile users** — containers start as root with NO `USER` directive and no user/group creation in the Dockerfile. The binary itself creates its dedicated user/group, creates its directories, sets permissions, then drops privileges once initialization completes. `entrypoint.sh` may export UID/GID env vars so the binary can match host ownership of mounted volumes. Running permanently as root (never dropping) is the exception and MUST be justified in `IDEA.md`.
 
 ### Mandatory `docker run` Naming Convention
 
 Every `docker run` invocation in this project (CI, scripts, docs, examples) MUST use:
 
 ```bash
+PROJECT_NAME="{project_name}"
+PROJECT_IMAGE="casjaysdev/rust:latest"
+
 docker run --rm \
   --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
   ...
 ```
+
+`PROJECT_NAME` and `PROJECT_IMAGE` are shell variables set once (e.g., in the Makefile or the calling script) before any of the `docker run` examples below — `PROJECT_NAME` resolves to the project's `{project_name}` and `PROJECT_IMAGE` to the toolchain image selected under PART 5 (normally `casjaysdev/rust:latest`).
 
 - `--rm` — self-remove on exit (no orphaned containers)
 - `-it` — interactive-capable for log streaming and signal handling
@@ -980,12 +1002,31 @@ docker run --rm \
 Embed at build time when practical:
 - version
 - commit ID
-- build date
+- build epoch (Unix seconds, UTC — the build date is derived from it at runtime)
 - official site (optional)
 
-**Example `build.rs` pattern:**
+**Single captured time source — `BUILD_EPOCH`:** every build path (local script, Makefile, Dockerfile, CI job) captures the build time exactly once, as Unix seconds UTC, and derives everything else from it:
+
+```bash
+# Captured ONCE per build; every other time value derives from this
+BUILD_EPOCH="$(date -u +%s)"
+```
+
+Makefile form (the derived `BUILD_DATE` line sits immediately after the capture):
+
+```makefile
+# Captured ONCE per build; every other time value derives from this
+BUILD_EPOCH := $(shell date -u +%s)
+# ISO 8601 UTC, derived from BUILD_EPOCH (docker build-arg / OCI label use only)
+BUILD_DATE := $(shell date -u -d @$(BUILD_EPOCH) +"%Y-%m-%dT%H:%M:%SZ")
+```
+
+`BUILD_DATE` is never independently captured — it exists only where a Docker build needs the `org.opencontainers.image.created` label (`--build-arg BUILD_DATE=`), derived as `BUILD_DATE="$(date -u -d "@${BUILD_EPOCH}" +%Y-%m-%dT%H:%M:%SZ)"`. The app itself never receives `BUILD_DATE`; it derives the date from the embedded epoch via `build_date()` below.
+
+**Example `build.rs` pattern** — the build environment exports `COMMIT_ID` and `BUILD_EPOCH`; `build.rs` maps them (plus the metadata files) to the `APP_*` variables `option_env!()` reads:
+
 ```rust
-use std::{fs, path::Path};
+use std::{env, fs, path::Path};
 
 fn main() {
     // Re-run this build script when either metadata file changes, otherwise
@@ -1002,15 +1043,34 @@ fn main() {
         let site = fs::read_to_string("site.txt").unwrap();
         println!("cargo:rustc-env=APP_OFFICIAL_SITE={}", site.trim());
     }
+
+    // Map build-environment variables to the APP_* names option_env!() reads.
+    // BUILD_DATE is deliberately NOT mapped - the app derives it from BUILD_EPOCH.
+    for (src, dst) in [("COMMIT_ID", "APP_COMMIT_ID"), ("BUILD_EPOCH", "APP_BUILD_EPOCH")] {
+        println!("cargo:rerun-if-env-changed={}", src);
+        if let Ok(val) = env::var(src) {
+            println!("cargo:rustc-env={}={}", dst, val.trim());
+        }
+    }
 }
 ```
 
-**Example runtime constants:**
+**Example runtime constants** (`build_date()` uses `chrono` — an approved pure-Rust date/time crate, PART 5 → "Pure-Rust Library Stack"; add `chrono = "0.4"` to `[dependencies]`):
 ```rust
 pub const VERSION: &str = option_env!("APP_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
 pub const OFFICIAL_SITE: &str = option_env!("APP_OFFICIAL_SITE").unwrap_or("");
 pub const COMMIT_ID: &str = option_env!("APP_COMMIT_ID").unwrap_or("N/A");
-pub const BUILD_DATE: &str = option_env!("APP_BUILD_DATE").unwrap_or("N/A");
+pub const BUILD_EPOCH: &str = option_env!("APP_BUILD_EPOCH").unwrap_or("0");
+
+// Build date derived from BUILD_EPOCH (RFC 3339 UTC); "N/A" when unset
+pub fn build_date() -> String {
+    match BUILD_EPOCH.parse::<i64>() {
+        Ok(n) if n > 0 => chrono::DateTime::from_timestamp(n, 0)
+            .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+            .unwrap_or_else(|| "N/A".into()),
+        _ => "N/A".into(),
+    }
+}
 ```
 
 ---
@@ -1041,7 +1101,7 @@ All machine-dependent settings MUST be detected at runtime on the target machine
 
 ## Logging & Log Rotation
 
-Applications write `app.log` and `error.log` to the platform log directory. Rotation is built in — no external logrotate needed. Same `rotate`/`keep` schema as the SERVER template.
+Applications write `app.log` and `error.log` to the platform log directory. Rotation is built in — no external logrotate needed. Same `rotate`/`keep` schema as the SERVER specification.
 
 ### Rotation Options
 
@@ -1129,6 +1189,24 @@ logging:
 - Help/version output must show the **actual invoked binary name**
 - **No escalation** — help at every level (main, subcommand, nested) must never call `sudo`, require root/admin, or check privilege state; exit immediately with the help text.
 
+## Human-Readable Values (User-Facing Output)
+
+**Every value shown on a user-facing surface — GUI windows and panels, TUI screens, and CLI pretty (default, non-machine) output — MUST be human-readable. Raw machine values belong to machine-readable output (`--json`, `--plain`) and logs only.**
+
+| Kind | Rule | Examples |
+|------|------|----------|
+| **Durations** | Largest fitting unit, at most two units, correct singular/plural: <60 s → seconds · ≥60 s → minutes · ≥60 min → hours · ≥24 h → days | `1 second` · `45 seconds` · `3 minutes` · `2 minutes 5 seconds` · `2 hours` · `1 hour 30 minutes` · `3 days 4 hours` |
+| **Sizes** | 1024 boundaries, full unit names, singular/plural, at most one decimal (drop `.0`): bytes → kilobytes → megabytes → gigabytes → terabytes | `1 byte` · `512 bytes` · `1 kilobyte` · `2.5 megabytes` · `5 gigabytes` · `1.2 terabytes` |
+| **Counts** | Locale-aware thousands separators | `12,847` |
+| **Timestamps** | Display format `%B %d, %Y at %H:%M:%S %Z` (zero-padded day) | `January 05, 2026 at 14:03:07 UTC` |
+
+| Rule | Detail |
+|------|--------|
+| **Shared helpers** | One implementation: `format::duration()` / `format::size()` / `format::count()` in the shared/common formatting module — never per-surface ad-hoc formatting |
+| **i18n** | Unit names go through translation keys (`format.seconds_one`, `format.seconds_other`, …) with per-language plural rules — never hardcoded English unit strings |
+| **Raw value preserved** | GUI/TUI surfaces MAY carry the machine value in a tooltip or detail view; the visible text is always the human form |
+| **Machine surfaces unchanged** | `--json`/`--plain` output and log files keep raw base units (seconds, bytes) — formatting is a presentation concern only |
+
 ## NO_COLOR Support
 
 When `NO_COLOR` is set and non-empty, disable ANSI color output. If the TUI depends on richer formatting, fall back to CLI/plain output instead of forcing a degraded pseudo-TUI.
@@ -1140,6 +1218,103 @@ When `NO_COLOR` is set and non-empty, disable ANSI color output. If the TUI depe
 | `TERM=dumb` | no auto-GUI | avoid | use CLI |
 | `NO_COLOR=1` | GUI unaffected unless project says otherwise | avoid color-dependent TUI | prefer CLI/plain |
 | stdout piped | avoid GUI | avoid TUI | use CLI |
+
+### Color Enablement Precedence
+
+```rust
+/// Return true if color output should be used
+pub fn color_enabled(force_color: Option<bool>) -> bool {
+    // 1. CLI flag overrides everything
+    if let Some(forced) = force_color {
+        return forced;
+    }
+    // 2. Config file (if applicable)
+    if let Some(cfg) = get_config() {
+        if cfg.output.color_set {
+            return cfg.output.color;
+        }
+    }
+    // 3. NO_COLOR env var (non-empty = disable)
+    if std::env::var("NO_COLOR").map(|v| !v.is_empty()).unwrap_or(false) {
+        return false;
+    }
+    // 4. Auto-detect: TTY + TERM support
+    if !atty::is(atty::Stream::Stdout) {
+        return false;
+    }
+    if std::env::var("TERM").map(|v| v == "dumb").unwrap_or(false) {
+        return false;
+    }
+    true
+}
+```
+
+CLI and TUI output MUST gate on `color_enabled(None)` — never a separate
+ad hoc `NO_COLOR` check. `ratatui`/`crossterm` do NOT auto-detect
+`NO_COLOR` — check `color_enabled(None)` before constructing styles and
+fall back to `Style::default()` (no `fg`/`bg`) when it returns `false`.
+Raw ANSI escapes in the CLI path are likewise not NO_COLOR-aware by
+themselves and must check `color_enabled()` explicitly.
+
+## Color Palette (TUI/CLI/GUI)
+
+**This is a single native binary — there is no Web CSS palette. TUI/CLI
+and GUI theming are defined separately, and neither uses literal hex:**
+
+### TUI/CLI — ANSI-mapped
+
+Terminals render a fixed, user-configured 16/256-color set, so TUI/CLI
+map semantic roles to the nearest ANSI color instead of literal hex:
+
+| Role | Dark ANSI | Light ANSI |
+|------|-----------|------------|
+| `foreground` | `BrightWhite` | `Black` |
+| `muted` | `White` | `DarkGray` |
+| `primary` / `accent` | `BrightMagenta` | `Blue` |
+| `secondary` / `success` | `BrightGreen` | `Green` |
+| `warning` | `BrightYellow` | `Yellow` |
+| `error` | `BrightRed` | `Red` |
+| `info` | `BrightBlue` | `Blue` |
+
+```rust
+// TerminalPalette holds ANSI 16-color indices (0-15) for TUI/CLI.
+// ratatui::style::Color::Indexed() and the ESC[38;5;{n}m escape both
+// accept these indices directly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalPalette {
+    pub foreground: String,
+    pub muted: String,
+    pub primary: String,
+    pub success: String,
+    pub warning: String,
+    pub error: String,
+    pub info: String,
+    pub border: String,
+}
+
+pub fn terminal_palette_dark() -> TerminalPalette {
+    TerminalPalette {
+        foreground: "15".into(), muted: "7".into(), primary: "13".into(),
+        success: "10".into(), warning: "11".into(), error: "9".into(),
+        info: "12".into(), border: "13".into(),
+    }
+}
+
+pub fn terminal_palette_light() -> TerminalPalette {
+    TerminalPalette {
+        foreground: "0".into(), muted: "8".into(), primary: "4".into(),
+        success: "2".into(), warning: "3".into(), error: "1".into(),
+        info: "4".into(), border: "4".into(),
+    }
+}
+```
+
+### GUI — native theming only
+
+GUI never consumes `TerminalPalette` or any literal hex palette. It
+detects light/dark only (the `dark-light` crate / OS theme APIs — see
+"Theme detection" above) and lets the native toolkit apply its own
+light/dark widget theme.
 
 ---
 
@@ -1244,7 +1419,7 @@ Plugin downloads are an additional case and apply only when IDEA.md defines a ha
 
 - Keep dependencies minimal
 - Remove unused crates promptly
-- **Renovate is the only supported dependency-update tool** — covers Cargo deps, GitHub Actions SHAs, and Docker image digests from a single `renovate.json` at the repo root. Works on GitHub, GitLab, Gitea, Forgejo, and Bitbucket.
+- **Renovate is the only supported dependency-update tool** — covers Cargo deps, GitHub Actions SHAs, and Docker image digests from a single `renovate.json` at the repo root. Works on GitHub, GitLab, Gitea, Forgejo, and Jenkins.
 - **Dependabot is forbidden** — GitHub-only, duplicates Renovate's work on GitHub, and cannot serve the other four providers. Never enable both.
 - Public repos MUST ship `renovate.json` so Cargo / Actions / Docker updates land as PRs automatically; Renovate uses `pinDigests: true` to keep all `uses:` lines pinned to immutable SHAs
 - Renovate only updates the SHA; the **runtime-still-supported** verification (e.g., node24 vs deprecated runtimes) remains a manual check on every SHA bump (PART 10 → "Third-party Action Pinning")
@@ -1268,12 +1443,13 @@ No hidden telemetry. Any analytics, crash reporting, or update pings must be doc
 | No unsafe fork secrets | Fork PRs do not receive secrets or publish permissions |
 | Version precedence | `release.txt` wins when present |
 | Site precedence | `site.txt` wins when present |
-| Verifiable outputs | Releases publish checksums and an SBOM (always); provenance/attestation when the platform supports it |
+| Verifiable outputs | Releases publish aggregate `sha256.txt` / `sha512.txt` checksum files and an SBOM (always); provenance/attestation when the platform supports it |
+| Single build time source | Every build job — on every provider (GitHub Actions, Gitea/Forgejo, GitLab CI, Jenkins) — captures `BUILD_EPOCH="$(date -u +%s)"` exactly once and exports it to the build environment so `build.rs` embeds it (PART 6). `BUILD_DATE` is never independently captured; where a Docker build needs the OCI `image.created` label, derive it (`date -u -d "@${BUILD_EPOCH}" +%Y-%m-%dT%H:%M:%SZ`) and pass both via `--build-arg BUILD_EPOCH=` / `--build-arg BUILD_DATE=` |
 | No Makefile in CI | Workflow `run:` steps invoke explicit commands with all environment variables inlined — never `make {target}`. The Makefile is for local developer convenience only. CI MUST NOT depend on Makefile targets that could drift silently. |
 | Portability | No hardcoded org, project name, official site, or registry value anywhere in workflows. Use `${{ github.repository_owner }}` / `${{ github.event.repository.name }}` (and provider equivalents). Workflows must keep working after a fork without editing values. |
 | Renovate only | `renovate.json` at repo root is the only supported dependency-update tool — it covers GitHub Actions SHAs, Docker image digests, Cargo deps, and works across all five providers from a single config. Dependabot is **forbidden** (GitHub-only; duplicates Renovate on GitHub; cannot serve the other four providers). |
 | `act` pre-commit validation | Before committing any change to `.github/workflows/*.yml`, run `act --list -W {file}` on each changed file. Fix all errors before committing. The `validate-workflows.sh` PreToolUse hook enforces this automatically. |
-| Concurrency groups | Every push/PR workflow declares `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }`. Release workflows use `cancel-in-progress: false` so a release in flight is never cancelled by a follow-up push. |
+| Concurrency groups | Every push/PR workflow declares `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }`. Release workflows also use `cancel-in-progress: true` — a newer tag push supersedes the in-flight release build. |
 | Artifact retention | Every `actions/upload-artifact` step sets `retention-days: 7` (or shorter) — no infinite retention of build outputs. |
 
 ## Workflow Permissions
@@ -1324,7 +1500,7 @@ Every external action (`uses: owner/action@...`) MUST be pinned to a full commit
 - uses: actions/checkout@v4
 
 # Correct — SHA is immutable
-- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+- uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 ```
 
 **When updating a pinned SHA**, verify three things:
@@ -1414,34 +1590,47 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           # required: truffleHog needs full history
           fetch-depth: 0
 
+      # Empty base/head = full-history scan (schedule runs and new-branch pushes)
+      - name: Determine scan range
+        id: range
+        run: |
+          BASE=""; HEAD=""
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"; HEAD="${{ github.sha }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"; HEAD="${{ github.event.pull_request.head.sha }}"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+
       - name: TruffleHog secret scan
-        uses: trufflesecurity/trufflehog@b634fb72d9901a4f942e5b8e4ef5f7ec59c97e7c  # v3.88.2
+        uses: trufflesecurity/trufflehog@27b0417c16317ca9a472a9a8092acce143b49c55  # v3.95.9
         with:
           # NEVER use default_branch — it resolves to HEAD post-push and skips the scan
-          base: ${{ github.event.before }}
-          head: ${{ github.sha }}
-          extra_args: --only-verified
+          base: ${{ steps.range.outputs.base }}
+          head: ${{ steps.range.outputs.head }}
+          extra_args: --results=verified,unknown
 
   workflow-policy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Verify all third-party actions are pinned to a 40-char SHA
         run: |
           set -eo pipefail
-          bad=$(grep -RhnE '^\s*uses:\s*[^@]+@(v?[0-9]|main|master)' .github/ .gitea/ .forgejo/ 2>/dev/null || true)
+          bad=$(grep -RnE '^[[:space:]]*uses:' .github/ .gitea/ .forgejo/ 2>/dev/null | grep -vE '@[0-9a-f]{40}([[:space:]]|$)' || true)
           if [[ -n "$bad" ]]; then
             echo "::error::Unpinned actions found (must be 40-char SHAs):"
             echo "$bad"
@@ -1450,27 +1639,31 @@ jobs:
 
   vuln-scan:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('Cargo.lock') != '' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - name: cargo audit (inside :build image)
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      # step-level gate: hashFiles() is not valid in a job-level if
+      - name: cargo audit (inside casjaysdev/rust:latest)
+        if: hashFiles('Cargo.lock') != ''
         run: |
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build"
+          IMAGE="casjaysdev/rust:latest"
           docker run --rm -i \
-            --name "${{ github.event.repository.name }}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+            --name "$(basename "$GITHUB_REPOSITORY")-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
             -v "$PWD":/work -w /work "$IMAGE" cargo audit
 
   image-scan:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('docker/Dockerfile') != '' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      # step-level gates: hashFiles() is not valid in a job-level if
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+        if: hashFiles('docker/Dockerfile') != ''
       - name: Build local image for scanning
+        if: hashFiles('docker/Dockerfile') != ''
         run: |
           docker build -f docker/Dockerfile -t scan-target:ci .
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37  # v0.70.0
+        if: hashFiles('docker/Dockerfile') != ''
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: scan-target:ci
           severity: CRITICAL,HIGH
@@ -1508,9 +1701,24 @@ jobs:
     container:
       image: casjaysdev/rust:latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Capture build epoch
+        run: |
+          # Captured ONCE per job - every other time value derives from this
+          BUILD_EPOCH=$(date -u +%s)
+          echo "BUILD_EPOCH=$BUILD_EPOCH" >> $GITHUB_ENV
       - run: cargo build --release
+        env:
+          BUILD_EPOCH: ${{ env.BUILD_EPOCH }}
 ```
+
+The same capture-once pattern applies on every provider:
+
+- **Gitea / Forgejo**: identical to GitHub Actions (`$GITHUB_ENV` is supported by the act runner)
+- **GitLab CI**: capture at the top of the job's `script:` — `export BUILD_EPOCH="$(date -u +%s)"` — before any build command; all later commands in the job reuse it
+- **Jenkins**: capture once per pipeline in `environment {}` — `BUILD_EPOCH = sh(script: 'date -u +%s', returnStdout: true).trim()` — and reference `${env.BUILD_EPOCH}` in every stage
+
+Where a job builds a Docker image, derive `BUILD_DATE` from the captured epoch for the OCI `image.created` label only — e.g. `echo "BUILD_DATE=$(date -u -d @$BUILD_EPOCH +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV` — and pass `--build-arg BUILD_EPOCH=` plus `--build-arg BUILD_DATE=`. The cargo build consumes `BUILD_EPOCH`, never `BUILD_DATE`.
 
 ### Required Concurrency and Retention Headers
 
@@ -1522,7 +1730,7 @@ concurrency:
   cancel-in-progress: true
 ```
 
-Release workflows (`release.yml`) MUST use `cancel-in-progress: false` so a release build already in flight is not killed by a follow-up push.
+Release workflows (`release.yml`) MUST use `cancel-in-progress: true` — a newer tag push supersedes the in-flight release build, so the superseded run should be cancelled rather than left to finish.
 
 Every `actions/upload-artifact` step MUST set a finite `retention-days`:
 
@@ -1538,6 +1746,9 @@ Every `actions/upload-artifact` step MUST set a finite `retention-days`:
 ```bash
 # Prepare output directory for release artifacts (binaries, checksums, SBOM)
 mkdir -p binaries
+
+# Captured ONCE per job - every other time value derives from this (PART 6)
+BUILD_EPOCH="$(date -u +%s)"
 
 # Run gates inside the image (casjaysdev/rust:latest — all tools pre-installed)
 docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/work -w /work "$PROJECT_IMAGE" cargo fmt --check
@@ -1561,28 +1772,51 @@ diff LICENSE.committed-generated.md LICENSE.generated.md
 # `cargo --target` keeps the full Rust target triple. The published artifact
 # is renamed to {project_name}-{platform}-{arch}{.ext} with -musl / vendor / ABI
 # tokens stripped (see PART 2 → "Binary Model").
-for TARGET in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+for TARGET in x86_64-unknown-linux-musl aarch64-unknown-linux-musl \
+              x86_64-pc-windows-gnu aarch64-pc-windows-gnullvm \
+              x86_64-apple-darwin aarch64-apple-darwin; do
   docker run --rm \
     --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+    -e BUILD_EPOCH="$BUILD_EPOCH" \
     -v "$PWD":/work -w /work "$PROJECT_IMAGE" \
     cargo build --release --target "$TARGET"
 
   # Map triple → artifact name: x86_64-unknown-linux-musl → linux-amd64
   case "$TARGET" in
-    x86_64-unknown-linux-musl)   ARTIFACT="{project_name}-linux-amd64" ;;
-    aarch64-unknown-linux-musl)  ARTIFACT="{project_name}-linux-arm64" ;;
+    x86_64-unknown-linux-musl)     ARTIFACT="{project_name}-linux-amd64" ;;
+    aarch64-unknown-linux-musl)    ARTIFACT="{project_name}-linux-arm64" ;;
+    x86_64-pc-windows-gnu)         ARTIFACT="{project_name}-windows-amd64.exe" ;;
+    aarch64-pc-windows-gnullvm)    ARTIFACT="{project_name}-windows-arm64.exe" ;;
+    x86_64-apple-darwin)           ARTIFACT="{project_name}-darwin-amd64" ;;
+    aarch64-apple-darwin)          ARTIFACT="{project_name}-darwin-arm64" ;;
   esac
 
-  cp "target/$TARGET/release/{project_name}" "binaries/$ARTIFACT"
-  sha256sum "binaries/$ARTIFACT" > "binaries/$ARTIFACT.sha256"
+  # Windows binaries carry the .exe extension in the build output; others do not.
+  case "$TARGET" in
+    *-pc-windows-*) BIN="{project_name}.exe" ;;
+    *)              BIN="{project_name}" ;;
+  esac
+  cp "target/$TARGET/release/$BIN" "binaries/$ARTIFACT"
 
-  # Verify static linkage for this target — fails the build if unexpected
-  # dynamic deps appear. Use the appropriate inspector per target family:
+  # Verify static/expected linkage for this target — fails the build if
+  # unexpected dynamic deps appear. Use the appropriate inspector per target family:
   #   Linux musl     → ldd  (expect "not a dynamic executable" / "statically linked")
   #   Apple darwin   → otool -L (expect only Apple-provided frameworks)
   #   Windows GNU    → dumpbin /dependents (expect no MinGW runtime DLLs; image has no MSVC toolchain)
-  docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/work -w /work "$PROJECT_IMAGE" \
-    sh -c "ldd target/$TARGET/release/{project_name} 2>&1 | grep -qE 'not a dynamic executable|statically linked'"
+  case "$TARGET" in
+    *-unknown-linux-musl)
+      docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/work -w /work "$PROJECT_IMAGE" \
+        sh -c "ldd target/$TARGET/release/{project_name} 2>&1 | grep -qE 'not a dynamic executable|statically linked'"
+      ;;
+    *-apple-darwin)
+      docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/work -w /work "$PROJECT_IMAGE" \
+        sh -c "otool -L target/$TARGET/release/{project_name}"
+      ;;
+    *-pc-windows-*)
+      docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/work -w /work "$PROJECT_IMAGE" \
+        sh -c "dumpbin /dependents target/$TARGET/release/{project_name}.exe"
+      ;;
+  esac
 done
 
 # Generate the SBOM (CycloneDX) — published alongside the release artifacts.
@@ -1591,6 +1825,16 @@ done
 docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/work -w /work "$PROJECT_IMAGE" \
   cargo cyclonedx --format json
 cp bom.json "binaries/{project_name}-bom.json"
+
+# Aggregate checksums over every release asset, generated last so the SBOM is
+# included. The file list is captured first so the checksum files never hash
+# themselves. Both files are uploaded as release assets.
+WORKDIR="$PWD"
+cd "$WORKDIR/binaries"
+FILES="$(ls)"
+sha256sum $FILES > sha256.txt
+sha512sum $FILES > sha512.txt
+cd "$WORKDIR"
 ```
 
 For GUI smoke tests in CI, use a virtual X server (e.g., `Xvfb`) and a headless Wayland compositor (e.g., `cage`, `weston --backend=headless`) **inside** the container or as a sidecar service — both backends MUST be exercised, not just one.
@@ -1613,7 +1857,7 @@ The GitHub Releases API returns HTTP 422 `"tag_name is not a valid tag"` when th
 The `release` job already has `contents: write` to push assets — this covers tag push as well.
 
 ```yaml
-- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+- uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
   with:
     # required: full history needed to inspect and push tags
     fetch-depth: 0
@@ -1642,7 +1886,7 @@ The `release` job already has `contents: write` to push assets — this covers t
 
 Tagged/manual releases should publish:
 - binaries/packages
-- SHA-256 checksum file
+- aggregate `sha256.txt` and `sha512.txt` checksum files covering every asset
 - release notes
 - SBOM (`CycloneDX` from `cargo-cyclonedx`; `SPDX JSON` is acceptable if a project chooses that format instead) — always
 - provenance / attestation — when the release platform supports it
@@ -1705,12 +1949,12 @@ Never use a GitHub Actions badge for a GitLab or Gitea project — the CI badge 
 
 # GitLab
 [![Release](https://gitlab.com/{project_org}/{project_name}/-/badges/release.svg)](https://gitlab.com/{project_org}/{project_name}/-/releases)
-[![License](https://img.shields.io/github/license/{project_org}/{project_name})](LICENSE.md)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 [![Docs](https://readthedocs.org/projects/{RTD_PROJECT}/badge/?version=latest)](https://{RTD_URL})
 
 # Gitea/Forgejo (use shields.io with custom endpoint or static badge)
-[![Release](https://img.shields.io/badge/dynamic/json?url=https://git.example.com/api/{api_version}/repos/{project_org}/{project_name}/releases/latest&query=$.tag_name&label=release)](https://git.example.com/{project_org}/{project_name}/releases)
-[![License](https://img.shields.io/github/license/{project_org}/{project_name})](LICENSE.md)
+[![Release](https://img.shields.io/badge/dynamic/json?url=https://git.example.com/api/v1/repos/{project_org}/{project_name}/releases/latest&query=$.tag_name&label=release)](https://git.example.com/{project_org}/{project_name}/releases)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 [![Docs](https://readthedocs.org/projects/{RTD_PROJECT}/badge/?version=latest)](https://{RTD_URL})
 
 # {RTD_PROJECT} and {RTD_URL} - Use one of:
@@ -1858,7 +2102,7 @@ Embedded license data MUST be reachable by the user at runtime, not just shipped
 - **TUI**: a "Licenses" / "Credits" entry in the help / about screen, scrollable
 - **GUI**: an "About → Open Source Licenses" entry that opens a scrollable view of the full text
 
-All three surfaces read the same `LICENSE.md` blob embedded at compile time via `include_str!` (PART 0 → "Self-Contained Assets"). The version, commit ID, and build date (PART 6) are shown alongside.
+All three surfaces read the same `LICENSE.md` blob embedded at compile time via `include_str!` (PART 0 → "Self-Contained Assets"). The version, commit ID, and build date (derived from `BUILD_EPOCH` via `build_date()`, PART 6) are shown alongside.
 
 ### CI Gate (mandatory)
 
@@ -1883,7 +2127,7 @@ Drift between `Cargo.lock` and the generated section of `LICENSE.md` is a CI fai
 - [ ] `IDEA.md` has `## Project variables`
 - [ ] `IDEA.md` has `## Business logic`
 - [ ] `project_name`, `project_org`, `internal_name`, and `internal_org` exist
-- [ ] If pre-template `CLAUDE.md` or `.claude/CLAUDE.md` existed, project-specific content was migrated into IDEA.md
+- [ ] If a pre-existing `CLAUDE.md` or `.claude/CLAUDE.md` existed, project-specific content was migrated into IDEA.md
 - [ ] `CLAUDE.md` / `.claude/CLAUDE.md` are short loaders, not duplicate specs
 - [ ] `release.txt` exists if the project is using explicit release versioning
 - [ ] `site.txt` exists only if there is a real official site URL
@@ -1925,6 +2169,7 @@ Drift between `Cargo.lock` and the generated section of `LICENSE.md` is a CI fai
 - [ ] `release.txt` / `site.txt` precedence is preserved
 - [ ] Docs and examples use Cargo/Rust terminology — wrapped in Docker invocations
 - [ ] No build/test/run instructions tell the user to invoke cargo on the host
+- [ ] If IDEA.md declares an RFC protocol daemon: the PART 14 daemon checklist passes
 
 ## Quality Checklist
 
@@ -1952,7 +2197,7 @@ All gates run inside the project Docker image — never on the host.
 - [ ] Version comes from `release.txt` when present
 - [ ] Official site comes from `site.txt` when present
 - [ ] Release notes match actual changes
-- [ ] Checksums (SHA-256) are published for every artifact
+- [ ] Aggregate `sha256.txt` and `sha512.txt` checksum files covering every artifact are published as release assets
 - [ ] Each release artifact is a single statically linked binary — no companion `.so` / `.dylib` / `.dll` / asset bundle
 - [ ] Static-linkage check (`ldd` / `otool -L` / `dumpbin /dependents`) was run and recorded for every published target
 - [ ] `LICENSE.md` regenerated and committed if `Cargo.lock` changed; CI license-drift check is green
@@ -1976,10 +2221,10 @@ All gates run inside the project Docker image — never on the host.
 
 ## Success Criteria
 
-A compliant Rust project created from this template:
+A compliant Rust project following this specification:
 - is driven by `IDEA.md` project variables while `AI.md` stays read-only
-- preserves the governance/documentation discipline of the original template
-- models a single-binary, fully self-contained Rust application built around GUI / TUI / CLI surfaces
+- preserves the governance/documentation discipline of this specification
+- models a single-binary, fully self-contained Rust application built around GUI / TUI / CLI surfaces (plus the conditional RFC protocol daemon mode of PART 14)
 - ships exclusively Rust source code (small Docker shell helpers excepted)
 - produces one statically linked binary per target with all assets embedded
 - runs end-to-end from the binary alone on an air-gapped machine
@@ -2073,7 +2318,7 @@ maintainer_email: {maintainer@example.com — or empty; used only if set}
 **Rules for the example contents above:**
 
 - No implementation details — describe behavior, not algorithms or libraries. AI.md PARTs 0–11 define HOW; PART 12 verifies compliance.
-- This template targets GUI / TUI / CLI applications (PART 0 → "One Coherent Product").
+- This specification targets GUI / TUI / CLI applications (PART 0 → "One Coherent Product").
 - Cross-reference AI.md PARTs by number for any pattern that already exists there (Docker → PART 5, security → PART 9, license exceptions → PART 11, etc.).
 - `internal_name` and `internal_org` are immutable after first set (see "IDEA.md Required Layout" → Project variables rules).
 
@@ -2259,7 +2504,7 @@ maintainer_email: jane@example.com
 - Symlinks are created relative to the dotfiles repo so the home directory remains portable
 
 **Platform constraints:**
-- POSIX-style filesystem operations; Windows support uses junction-style links via the standard library
+- POSIX-style filesystem operations; Windows support uses real NTFS symlinks via `std::os::windows::fs::symlink_file` / `symlink_dir` (not junctions — a separate reparse-point mechanism), which require Developer Mode or elevated privileges to create
 
 **Outbound network use:** none
 
@@ -2269,3 +2514,139 @@ maintainer_email: jane@example.com
 
 **License exceptions:** none
 ```
+
+---
+
+# PART 14: RFC PROTOCOL SERVER / DAEMON MODE (CONDITIONAL)
+
+**This PART applies only when IDEA.md `## Business logic` declares the project an RFC protocol server (daemon). If it does not, this PART is inert and adds no requirements.**
+
+## What This Mode Is
+
+A protocol daemon is an infrastructure server in the tradition of nginx/httpd/caddy (HTTP), proftpd/vsftpd (FTP), postfix/exim (SMTP), dovecot (IMAP/POP3), squid (HTTP proxy), or bind/unbound (DNS). It is still a single-binary application under this specification — it is NOT an API server and NOT a web frontend server:
+
+| Type | Speaks | Governing spec |
+|------|--------|----------------|
+| API server | JSON/REST over HTTP for its own API | the API server specification |
+| Full-stack web server | its own HTML frontend + optional REST | the web server specification |
+| **Protocol daemon (this PART)** | **a standard wire protocol, exactly as its RFC defines** | this specification + this PART |
+
+**Every listening socket speaks a standard, RFC-governed wire protocol. The daemon never exposes an invented protocol, and never mixes non-protocol traffic (dashboards, JSON APIs, health endpoints) into protocol sockets.**
+
+## IDEA.md Declaration
+
+IDEA.md `## Business logic` MUST declare:
+- that the project is a protocol server (daemon)
+- every protocol implemented, with its governing RFC numbers
+- which optional protocol extensions are in scope
+
+Example:
+
+```markdown
+### Protocols
+
+| Protocol | RFCs | Extensions |
+|----------|------|------------|
+| SMTP (MTA) | RFC 5321, RFC 5322 | STARTTLS (RFC 3207), AUTH (RFC 4954), 8BITMIME (RFC 6152) |
+| Submission | RFC 6409 | — |
+```
+
+## RFC Conformance Rules
+
+| Rule | Detail |
+|------|--------|
+| **The RFC is the contract** | Wire behavior implements the RFCs IDEA.md declares. RFC 2119/8174 key words apply: RFC MUST requirements are hard gates; any SHOULD-level deviation requires an IDEA.md entry with reasoning |
+| **Never invent wire protocols** | No proprietary commands, replies, or framing on protocol sockets |
+| **Extensions via the protocol's own mechanism** | ESMTP EHLO keywords, IMAP CAPABILITY, FTP FEAT, HTTP headers/upgrade — advertised through the protocol's negotiation, declared in IDEA.md |
+| **Protocol constants from the RFC** | Reply codes, status codes, and grammar come from the RFC — never invented values |
+| **Interop is the ground truth** | Conformance is verified against real-world clients, not only unit tests |
+
+## Common Protocol → RFC Map (Reference Only — IDEA.md's Declared List Governs)
+
+| Protocol | Core RFCs | Example daemons |
+|----------|-----------|-----------------|
+| HTTP/1.1 | 9110, 9111, 9112 | nginx, httpd, caddy |
+| HTTP/2 · HTTP/3 | 9113 · 9114 | nginx, caddy |
+| HTTP proxy (CONNECT) | 9110 | squid |
+| FTP | 959, 2228, 3659 | proftpd, vsftpd |
+| SMTP / submission | 5321, 5322, 6409 | postfix, exim |
+| IMAP4rev2 / POP3 | 9051 (3501), 1939 | dovecot |
+| DNS | 1034, 1035 | bind, unbound |
+| TLS / STARTTLS | 8446, 3207 | — |
+| WebSocket | 6455 | — |
+
+## Runtime Model
+
+| Rule | Detail |
+|------|--------|
+| **Serve entrypoint** | `{project_name} serve` starts the daemon; IDEA.md may define aliases |
+| **Foreground only** | The process runs in the foreground and never self-daemonizes (no fork/detach) — systemd or the container runtime supervises it |
+| **UI mode** | `serve` forces CLI mode; the GUI/TUI auto-detect of PART 3 never applies to a service process. Optional GUI/TUI surfaces are management consoles over the same shared core |
+| **Console output** | Startup banner, then console silence in normal operation — protocol traffic and periodic work log to files only; the console shows WARN/ERROR |
+
+## Signals & Lifecycle
+
+| Signal | Action |
+|--------|--------|
+| `SIGTERM` / `SIGINT` | Graceful shutdown: stop accepting, drain active sessions up to `daemon.shutdown_timeout` (default 30 seconds), then exit 0 |
+| `SIGHUP` | Reload config and TLS certificates without dropping established sessions; if the new config is invalid, keep running on the old config and log ERROR |
+| `SIGUSR1` | Reopen log files (for external rotation tooling; built-in rotation per PART 7 still applies) |
+
+Signal handling uses `tokio::signal` (async runtimes) or `signal-hook` (sync daemons).
+
+**`--config-test` (`-t`) is REQUIRED:** parse and validate the full config, print errors to stderr, exit 0 (valid) or 1 (invalid) — mirrors `nginx -t`. It never touches sockets or running state.
+
+## Sockets, Ports & Privileges
+
+- IPv4 + IPv6 listeners (dual-stack by default; per-listener config)
+- IANA standard port defaults for the protocol; every listener configurable
+- **Privileged ports (<1024): bind first, then drop privileges** — target credentials are resolved before the drop, and the daemon never continues running as root after binding (`nix` crate setuid/setgid pattern)
+- TLS: cert/key paths in config, reloaded on SIGHUP; implicit TLS vs STARTTLS per the protocol's RFC
+
+## Health & Metrics Sidecar (Optional — OFF by Default)
+
+```yaml
+daemon:
+  # Seconds to drain active sessions on SIGTERM
+  shutdown_timeout: 30
+  sidecar:
+    # OFF by default — protocol sockets stay pure protocol
+    enabled: false
+    # Loopback only unless explicitly configured otherwise
+    address: 127.0.0.1
+    # REQUIRED when enabled — no implicit default port
+    port: 0
+```
+
+| Rule | Detail |
+|------|--------|
+| **Disabled = no HTTP listener** | When `sidecar.enabled: false` (default), the daemon opens no HTTP socket at all |
+| **Same contract as the server specs** | When enabled, the sidecar serves `/server/healthz` and `/server/metrics[/{service}]` with the exact same JSON shape, status semantics, and per-service bearer-token auth defined by the API/SERVER specifications |
+| **Loopback bind** | `127.0.0.1` by default; binding a non-loopback address requires explicit config |
+| **Never on protocol sockets** | Health/metrics never ride the protocol listeners — even when the daemon's protocol is HTTP itself, the sidecar is a separate listener |
+
+## Protocol Logging
+
+- Transaction logs use the protocol community's de-facto standard format where one exists (HTTP → Apache combined by default; FTP → xferlog; SMTP → per-message queue/delivery lines); otherwise structured text
+- Same rotation/retention schema as PART 7 logging
+- The wire is a machine surface: protocol bytes are exactly what the RFC prescribes — the human-readable formatting rules of PART 7 apply to CLI/status/TUI/GUI output only, never to wire output
+
+## Testing
+
+- Every implemented RFC MUST requirement has a conformance test; SHOULD-level behavior is tested when in scope
+- Interop smoke tests run in `docker/docker-compose.test.yml` against real clients (`curl` for HTTP, `lftp` for FTP, `swaks` for SMTP, `openssl s_client` for TLS, `dig` for DNS)
+- Malformed-input tests: negative/fuzz cases return the RFC-mandated error replies and never crash the daemon
+- A failed RFC MUST requirement is a bug — never a documented quirk
+
+## Daemon Checklist
+
+- [ ] IDEA.md declares protocols, RFC numbers, and in-scope extensions
+- [ ] All wire behavior traces to the declared RFCs; no invented commands, replies, or framing
+- [ ] `serve` runs foreground in CLI mode; no self-daemonization
+- [ ] SIGTERM drains gracefully within `shutdown_timeout`; SIGHUP reloads config/certs without dropping sessions; an invalid reload keeps the old config running
+- [ ] `--config-test` validates the config and exits 0/1
+- [ ] Privileged ports use bind-then-drop; the daemon never runs steady-state as root
+- [ ] IPv4+IPv6 listeners with IANA defaults, all configurable
+- [ ] Sidecar is OFF by default; when enabled it binds loopback and matches the server specs' healthz/metrics contract
+- [ ] Transaction logs use the protocol's standard format; console is silent in normal operation
+- [ ] Interop smoke tests pass against real clients in Docker
