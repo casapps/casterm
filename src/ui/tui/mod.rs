@@ -1299,6 +1299,13 @@ fn run_app<B: Backend + std::io::Write>(
                                 panel,
                             );
                         }
+                        // GUI-only per the plan's Phase 6 TUI/GUI asymmetry
+                        // note: the TUI never constructs `Image` (image
+                        // files always go through `Platform::open_with_default_app`
+                        // instead), so this arm is unreachable in practice
+                        // but still required for exhaustiveness since the
+                        // enum is shared with the GUI front end.
+                        crate::app::file_browser::ViewerContent::Image(_) => {}
                     }
                 }
             })

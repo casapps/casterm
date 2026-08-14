@@ -157,7 +157,7 @@ conversation"). Remove each line only once fully implemented.
   `apk` but not preinstalled), so this test can't assert a real device is
   always obtainable in CI.
 
-## Local file browser (Phases 1-5 of 6 done, `.claude/plans/inherited-painting-lark.md`)
+## Local file browser (Phases 1-6 of 6 done, `.claude/plans/inherited-painting-lark.md`)
 
 - Phase 1: shared-core infrastructure (`app::file_browser`, `app::editor`,
   `config::FileBrowserConfig`, the `Ctrl+T`-default toggle keybinding wired
@@ -223,6 +223,28 @@ conversation"). Remove each line only once fully implemented.
   Unit-tested only via the smoke-test precedent (headless wgpu instance);
   the `editor_panel_rows` scroll/truncation math is covered directly
   (no-wgpu pure function, same pattern as `file_browser_panel_rows`).
+- Phase 6: GUI image viewer (`app::image_state::ImageState`, decoding via
+  `image::open(path)?.to_rgba8()` into a raw RGBA8 buffer — GUI-only, no
+  TUI counterpart; the TUI keeps handing `FileKind::Image` off to the OS
+  default app permanently, per the plan's TUI/GUI asymmetry note). A
+  second `wgpu::Texture`/`TextureView` (`Renderer::set_image`,
+  `create_image_texture` in `src/ui/gui/renderer.rs`) is uploaded whole
+  (not lazily packed like the glyph atlas, since only one image is viewed
+  at a time) whenever the viewer switches to/from `ViewerContent::Image`,
+  with the bind group rebuilt around it (bind groups are immutable once
+  created); a 1x1 transparent placeholder texture keeps the bind group
+  valid while no image is open. A third shader `mode` value (`2.0`) added
+  to `SHADER_SRC`/`Vertex` samples the image texture directly (unlike
+  glyph mode, no per-cell color tint). `app::image_state::fit_to_window`
+  computes a letterboxed, aspect-ratio-preserving destination rect
+  (pure-function tested with no-wgpu fixtures, same pattern as
+  `editor_panel_rows`); `Renderer::push_image_panel` pushes that rect as
+  one `mode = 2.0` quad, taking over the full window like the editor
+  rather than sharing the narrow tree-panel strip. Selecting a
+  `FileKind::Image` entry now switches `WindowState::viewer` to
+  `ViewerContent::Image` instead of OS handoff; `Esc` (new
+  `WindowState::handle_image_key`) returns to the tree and frees the
+  texture via `set_image(None)`. No zoom/pan/scroll in MVP scope.
 - `.gitignore`-aware tree filtering — needs the `ignore` crate, not
   currently a dependency.
 - File-type icons / nerd-font glyphs in the tree.

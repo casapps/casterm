@@ -2,6 +2,7 @@
 
 pub mod editor;
 pub mod file_browser;
+pub mod image_state;
 pub mod keybindings;
 pub mod multiplexer;
 pub mod pane_runtime;

@@ -15,6 +15,7 @@ use winit::window::Window;
 
 use crate::app::editor::EditorState;
 use crate::app::file_browser::FileBrowserState;
+use crate::app::image_state::{fit_to_window, ImageState};
 use crate::app::terminal::CursorStyle;
 use crate::support::error::{CastermError, Result};
 use crate::ui::render_model::{ResolvedCell, Rgb};
@@ -28,6 +29,7 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var atlas_tex: texture_2d<f32>;
 @group(0) @binding(2) var atlas_sampler: sampler;
+@group(0) @binding(3) var image_tex: texture_2d<f32>;
 
 struct VertexInput {
     @location(0) pos: vec2<f32>,
@@ -57,6 +59,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (in.mode > 1.5) {
+        return textureSample(image_tex, atlas_sampler, in.uv);
+    }
     if (in.mode > 0.5) {
         let coverage = textureSample(atlas_tex, atlas_sampler, in.uv).a;
         return vec4<f32>(in.color.rgb, in.color.a * coverage);
@@ -89,6 +94,58 @@ impl Vertex {
             attributes: &Self::ATTRS,
         }
     }
+}
+
+/// Create (and upload, if non-empty) a `width x height` RGBA8 texture for
+/// the image viewer's second texture slot. Follows the same
+/// `queue.write_texture` pattern as `GlyphAtlas::glyph`, but as a
+/// one-shot whole-image upload rather than a lazily-packed atlas, since
+/// only one image is viewed at a time (see
+/// `.claude/plans/inherited-painting-lark.md` Phase 6).
+fn create_image_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) -> (wgpu::Texture, wgpu::TextureView) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("casterm-gui-image-texture"),
+        size: wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    if width > 0 && height > 0 {
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (texture, view)
 }
 
 /// Serialize vertices to a byte buffer without depending on `bytemuck` —
@@ -253,9 +310,20 @@ pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
+    sampler: wgpu::Sampler,
     atlas: GlyphAtlas,
+    /// Second texture used by the image viewer (shader `mode = 2.0`).
+    /// Rebuilt via `set_image` whenever the open image changes; a 1x1
+    /// transparent placeholder keeps the bind group valid while no image is
+    /// open. See `.claude/plans/inherited-painting-lark.md` Phase 6. Never
+    /// read directly (only `image_view` is bound) — kept alive here purely
+    /// so the GPU resource backing `image_view` isn't dropped underneath it.
+    #[allow(dead_code)]
+    image_texture: wgpu::Texture,
+    image_view: wgpu::TextureView,
     cell_w: f32,
     cell_h: f32,
     ascent: f32,
@@ -266,6 +334,13 @@ pub struct Renderer {
 pub struct Selection {
     pub start: (u16, u16),
     pub end: (u16, u16),
+}
+
+/// View data for rendering the image viewer's fit-to-window quad. The
+/// decoded texture itself must already have been uploaded via
+/// `Renderer::set_image` before a frame with `image: Some(..)` is drawn.
+pub struct ImagePanelView<'a> {
+    pub state: &'a ImageState,
 }
 
 impl Renderer {
@@ -374,8 +449,23 @@ impl Renderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
+
+        // 1x1 transparent placeholder so the bind group is always valid
+        // before any image has been opened; `set_image` replaces it.
+        let (image_texture, image_view) =
+            create_image_texture(&device, &queue, 1, 1, &[0, 0, 0, 0]);
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("casterm-gui-bind-group"),
@@ -392,6 +482,10 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&image_view),
                 },
             ],
         });
@@ -443,13 +537,60 @@ impl Renderer {
             surface,
             config,
             pipeline,
+            bind_group_layout,
             bind_group,
             uniform_buffer,
+            sampler,
             atlas,
+            image_texture,
+            image_view,
             cell_w,
             cell_h,
             ascent,
         })
+    }
+
+    /// Upload (or clear) the image-viewer texture (shader `mode = 2.0`).
+    /// Called by the window layer when `ViewerContent` switches to/from
+    /// `Image(..)`, not per frame — the texture only needs to change when
+    /// the open image changes. Recreates the texture and rebuilds the bind
+    /// group (bind groups are immutable once created), mirroring the plan's
+    /// "recreated per image opened, freed on close" scope note.
+    pub fn set_image(&mut self, image: Option<&ImageState>) {
+        let (texture, view) = match image {
+            Some(img) => create_image_texture(
+                &self.device,
+                &self.queue,
+                img.width(),
+                img.height(),
+                img.rgba(),
+            ),
+            None => create_image_texture(&self.device, &self.queue, 1, 1, &[0, 0, 0, 0]),
+        };
+        self.image_texture = texture;
+        self.image_view = view;
+        self.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("casterm-gui-bind-group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.atlas.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.image_view),
+                },
+            ],
+        });
     }
 
     /// The pixel size of one terminal cell, used by the window to compute
@@ -480,7 +621,6 @@ impl Renderer {
     /// to draw for the cell flagged `is_cursor`, and `cursor_color` the
     /// fill used for that shape's non-block geometry.
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         cells: &[ResolvedCell],
@@ -495,6 +635,7 @@ impl Renderer {
         term_x_offset: f32,
         panel: Option<FileBrowserPanelView<'_>>,
         editor: Option<EditorPanelView<'_>>,
+        image: Option<ImagePanelView<'_>>,
     ) -> Result<()> {
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -517,6 +658,10 @@ impl Renderer {
             // it replaces the terminal-grid loop and any tree panel below
             // rather than sharing space with them.
             self.push_editor_panel(&mut vertices, editor);
+        } else if let Some(image) = &image {
+            // Same full-window takeover as the editor — a fixed fit-to-
+            // window image quad, no terminal grid or tree panel underneath.
+            self.push_image_panel(&mut vertices, image);
         } else {
             for row in 0..rows {
                 for col in 0..cols {
@@ -697,6 +842,31 @@ impl Renderer {
                 );
             }
         }
+    }
+
+    /// Emit the image viewer's single fit-to-window quad (shader
+    /// `mode = 2.0`, full `[0,0]..[1,1]` UV range so it samples the whole
+    /// uploaded image texture). The texture itself must already have been
+    /// uploaded via `set_image` — this only computes and pushes the
+    /// destination rectangle. No zoom/pan in MVP scope, per the plan.
+    fn push_image_panel(&mut self, out: &mut Vec<Vertex>, view: &ImagePanelView<'_>) {
+        let (x, y, w, h) = fit_to_window(
+            view.state.width(),
+            view.state.height(),
+            self.config.width as f32,
+            self.config.height as f32,
+        );
+        push_quad(
+            out,
+            x,
+            y,
+            w,
+            h,
+            [0.0, 0.0],
+            [1.0, 1.0],
+            rgb_to_f32(Rgb(255, 255, 255), 1.0),
+            2.0,
+        );
     }
 
     /// Default nano-style key-hint bar text, shown when no transient

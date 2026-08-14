@@ -241,12 +241,16 @@ impl FileBrowserState {
 /// Content currently shown in the file-browser panel: the tree itself, or —
 /// once a file has been opened — the built-in editor/viewer for it.
 ///
-/// Wired into the TUI in Phase 4
-/// (`.claude/plans/inherited-painting-lark.md`); the GUI (Phase 5) still
-/// hands every non-directory entry off to the OS default application.
+/// Wired into the TUI in Phase 4 (`Editor`) and the GUI in Phase 5
+/// (`Editor`) / Phase 6 (`Image`) of
+/// `.claude/plans/inherited-painting-lark.md`. `Image` is GUI-only by
+/// design — the TUI keeps handing `FileKind::Image` entries off to the OS
+/// default application permanently (see the plan's Phase 6 "Order and
+/// dependency reasoning").
 pub enum ViewerContent {
     Tree,
     Editor(super::editor::EditorState),
+    Image(super::image_state::ImageState),
 }
 
 impl ViewerContent {
@@ -259,6 +263,12 @@ impl ViewerContent {
 /// the TUI since Phase 4; the GUI (Phase 5) will call this too.
 pub fn open_for_edit(path: &Path) -> Result<super::editor::EditorState> {
     super::editor::EditorState::load(path.to_path_buf())
+}
+
+/// Open `path` for viewing, decoding it into a fresh `ImageState`. GUI-only
+/// since Phase 6 (see `ViewerContent::Image`).
+pub fn open_for_view(path: &Path) -> Result<super::image_state::ImageState> {
+    super::image_state::ImageState::load(path.to_path_buf())
 }
 
 #[cfg(test)]

@@ -20,7 +20,7 @@ use crate::support::error::{CastermError, Result};
 use crate::ui::render_model::{cursor_style, encode_key, resolve_grid, Rgb};
 
 use super::input::{to_key_code, to_key_modifiers};
-use super::renderer::{EditorPanelView, FileBrowserPanelView, Renderer, Selection};
+use super::renderer::{EditorPanelView, FileBrowserPanelView, ImagePanelView, Renderer, Selection};
 
 /// Redraw/PTY-poll cadence — matches the TUI event loop's own 16ms poll
 /// interval (roughly 60Hz) so PTY output feels equally responsive in both
@@ -131,6 +131,12 @@ impl WindowState {
                             ))
                         }
                     };
+                    if !self.viewer.is_tree() {
+                        // Leaving an open editor/image view behind: free the
+                        // GPU image texture if one was loaded (no-op
+                        // otherwise) before resetting to the tree.
+                        self.renderer.set_image(None);
+                    }
                     self.viewer = crate::app::file_browser::ViewerContent::Tree;
                     self.editor_status = None;
                     // Toggling doesn't fire a `WindowEvent::Resized`, so the
@@ -147,10 +153,16 @@ impl WindowState {
             // passthrough — same "swallow while active" precedent as the
             // TUI's `handle_file_browser_key`/`handle_editor_key`.
             Resolved::NoMatch if self.file_browser.is_some() => {
-                if self.viewer.is_tree() {
-                    self.handle_file_browser_key(code)?;
-                } else {
-                    self.handle_editor_key(code)?;
+                match &self.viewer {
+                    crate::app::file_browser::ViewerContent::Tree => {
+                        self.handle_file_browser_key(code)?;
+                    }
+                    crate::app::file_browser::ViewerContent::Editor(_) => {
+                        self.handle_editor_key(code)?;
+                    }
+                    crate::app::file_browser::ViewerContent::Image(_) => {
+                        self.handle_image_key(code);
+                    }
                 }
                 Ok(false)
             }
@@ -205,9 +217,12 @@ impl WindowState {
 
     /// Act on the currently-selected file-browser entry: expand/collapse a
     /// directory, switch to the built-in editor for `FileKind::Text`
-    /// (Phase 5), or hand everything else off to the OS default
-    /// application. Mirrors `ui::tui::mod::TuiApp::open_selected_file_browser_entry`
-    /// exactly. Image viewing narrows further in Phase 6.
+    /// (Phase 5), switch to the built-in image viewer for `FileKind::Image`
+    /// (Phase 6, GUI-only — the TUI stays on OS handoff for images
+    /// permanently), or hand everything else off to the OS default
+    /// application. Diverges from
+    /// `ui::tui::mod::TuiApp::open_selected_file_browser_entry` only in the
+    /// `Image` arm, per the plan's deliberate TUI/GUI asymmetry.
     fn open_selected_file_browser_entry(&mut self) -> Result<()> {
         let Some(browser) = self.file_browser.as_mut() else {
             return Ok(());
@@ -232,8 +247,17 @@ impl WindowState {
                 self.recompute_terminal_grid_from_window();
                 Ok(())
             }
-            crate::app::file_browser::FileKind::Image
-            | crate::app::file_browser::FileKind::Other => {
+            crate::app::file_browser::FileKind::Image => {
+                let image = crate::app::file_browser::open_for_view(&path)?;
+                self.renderer.set_image(Some(&image));
+                self.viewer = crate::app::file_browser::ViewerContent::Image(image);
+                // The image viewer takes over the full window, same as the
+                // editor, so the terminal grid's reserved pixel width
+                // changes here too.
+                self.recompute_terminal_grid_from_window();
+                Ok(())
+            }
+            crate::app::file_browser::FileKind::Other => {
                 crate::platform::Platform::open_with_default_app(&path)
             }
         }
@@ -268,10 +292,24 @@ impl WindowState {
         Ok(())
     }
 
+    /// Handle a key event while the built-in image viewer has focus. No
+    /// zoom/pan/scroll in MVP scope (per the plan), so the only bound key
+    /// is `Esc`, returning to the tree view — the panel's own toggle key
+    /// closes the whole panel (handled earlier in `dispatch_key`). Every
+    /// other key is swallowed, same "swallow while active" precedent as
+    /// the tree panel and editor.
+    fn handle_image_key(&mut self, code: crossterm::event::KeyCode) {
+        if code == crossterm::event::KeyCode::Esc {
+            self.renderer.set_image(None);
+            self.viewer = crate::app::file_browser::ViewerContent::Tree;
+            self.recompute_terminal_grid_from_window();
+        }
+    }
+
     /// Pixel width currently reserved for the file-browser tree panel —
-    /// zero when it's closed, and also zero while the built-in editor is
-    /// showing (Phase 5) since the editor takes over the full window
-    /// instead of sharing the narrow tree-panel strip.
+    /// zero when it's closed, and also zero while the built-in editor or
+    /// image viewer is showing (Phase 5/6) since both take over the full
+    /// window instead of sharing the narrow tree-panel strip.
     fn file_browser_panel_px(&self) -> f32 {
         if self.file_browser.is_some() && self.viewer.is_tree() {
             self.file_browser_width as f32 * self.renderer.cell_size().0
@@ -395,6 +433,13 @@ impl WindowState {
                 None
             };
 
+        let image_view = if let crate::app::file_browser::ViewerContent::Image(image) = &self.viewer
+        {
+            Some(ImagePanelView { state: image })
+        } else {
+            None
+        };
+
         self.renderer.render(
             &cells,
             size.cols,
@@ -408,6 +453,7 @@ impl WindowState {
             term_x_offset,
             panel_view,
             editor_view,
+            image_view,
         )
     }
 
