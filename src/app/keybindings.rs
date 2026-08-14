@@ -107,10 +107,15 @@ pub struct KeymapResolver {
 }
 
 impl KeymapResolver {
-    pub fn new(config: &KeyBindingsConfig) -> Self {
+    /// `file_browser_toggle` is the configured chord spec for the
+    /// "toggle-file-browser" action (`config::FileBrowserConfig::keybinding`,
+    /// `"C-t"` by default) — passed separately from `KeyBindingsConfig`
+    /// since the file-browser panel has its own config section, mirroring
+    /// how `copy_mode_style` already selects a variant default binding.
+    pub fn new(config: &KeyBindingsConfig, file_browser_toggle: &str) -> Self {
         let mut bindings = HashMap::new();
-        for (spec, action) in default_bindings(config.copy_mode_style) {
-            if let Some(seq) = KeyChord::parse_sequence(spec) {
+        for (spec, action) in default_bindings(config.copy_mode_style, file_browser_toggle) {
+            if let Some(seq) = KeyChord::parse_sequence(&spec) {
                 bindings.insert(seq, action.to_string());
             }
         }
@@ -198,24 +203,32 @@ impl KeymapResolver {
 
 /// Built-in default bindings. `C-Space` is the prefix key (matching the
 /// terminal's historical Ctrl+Space-enters-command-mode behavior); the
-/// copy-mode entry chord depends on the configured vi/emacs style.
-fn default_bindings(style: CopyModeStyle) -> Vec<(&'static str, &'static str)> {
-    let mut bindings = vec![
-        ("C-Space n", "next-window"),
-        ("C-Space p", "prev-window"),
-        ("C-Space d", "detach"),
-        ("C-Space q", "quit"),
-        ("C-Space C-Space", "send-literal-prefix"),
-        ("C-Space Space", "send-literal-prefix"),
-        ("C-Space l", "lock"),
-        ("C-Space \"", "split-horizontal"),
-        ("C-Space %", "split-vertical"),
-        ("C-Space x", "close-pane"),
-        ("C-Space o", "focus-next-pane"),
+/// copy-mode entry chord depends on the configured vi/emacs style. The
+/// file-browser toggle is deliberately global/unprefixed (no `C-Space`
+/// needed) so it behaves like a normal application shortcut.
+fn default_bindings(
+    style: CopyModeStyle,
+    file_browser_toggle: &str,
+) -> Vec<(String, &'static str)> {
+    let mut bindings: Vec<(String, &'static str)> = vec![
+        ("C-Space n".to_string(), "next-window"),
+        ("C-Space p".to_string(), "prev-window"),
+        ("C-Space d".to_string(), "detach"),
+        ("C-Space q".to_string(), "quit"),
+        ("C-Space C-Space".to_string(), "send-literal-prefix"),
+        ("C-Space Space".to_string(), "send-literal-prefix"),
+        ("C-Space l".to_string(), "lock"),
+        ("C-Space \"".to_string(), "split-horizontal"),
+        ("C-Space %".to_string(), "split-vertical"),
+        ("C-Space x".to_string(), "close-pane"),
+        ("C-Space o".to_string(), "focus-next-pane"),
     ];
     match style {
-        CopyModeStyle::Vi => bindings.push(("C-Space [", "copy-mode")),
-        CopyModeStyle::Emacs => bindings.push(("C-Space Escape", "copy-mode")),
+        CopyModeStyle::Vi => bindings.push(("C-Space [".to_string(), "copy-mode")),
+        CopyModeStyle::Emacs => bindings.push(("C-Space Escape".to_string(), "copy-mode")),
+    }
+    if !file_browser_toggle.is_empty() {
+        bindings.push((file_browser_toggle.to_string(), "toggle-file-browser"));
     }
     bindings
 }
@@ -231,7 +244,7 @@ mod tests {
 
     #[test]
     fn resolves_default_prefix_sequence() {
-        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default());
+        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default(), "C-t");
         let (m, c) = ctrl_space();
         assert_eq!(resolver.resolve(m, c), Resolved::Pending);
         assert_eq!(
@@ -243,7 +256,7 @@ mod tests {
 
     #[test]
     fn unmatched_key_after_prefix_is_swallowed_not_passed_through() {
-        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default());
+        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default(), "C-t");
         let (m, c) = ctrl_space();
         resolver.resolve(m, c);
         assert_eq!(
@@ -256,7 +269,7 @@ mod tests {
 
     #[test]
     fn fresh_unmatched_key_reports_no_match_and_nothing_pending() {
-        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default());
+        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default(), "C-t");
         assert_eq!(
             resolver.resolve(KeyModifiers::NONE, KeyCode::Char('a')),
             Resolved::NoMatch
@@ -266,18 +279,24 @@ mod tests {
 
     #[test]
     fn vi_and_emacs_styles_produce_different_copy_mode_bindings() {
-        let vi = KeymapResolver::new(&KeyBindingsConfig {
-            copy_mode_style: CopyModeStyle::Vi,
-            bindings: Vec::new(),
-        });
+        let vi = KeymapResolver::new(
+            &KeyBindingsConfig {
+                copy_mode_style: CopyModeStyle::Vi,
+                bindings: Vec::new(),
+            },
+            "C-t",
+        );
         assert!(vi
             .bindings
             .contains_key(&KeyChord::parse_sequence("C-Space [").expect("valid sequence")));
 
-        let emacs = KeymapResolver::new(&KeyBindingsConfig {
-            copy_mode_style: CopyModeStyle::Emacs,
-            bindings: Vec::new(),
-        });
+        let emacs = KeymapResolver::new(
+            &KeyBindingsConfig {
+                copy_mode_style: CopyModeStyle::Emacs,
+                bindings: Vec::new(),
+            },
+            "C-t",
+        );
         assert!(emacs
             .bindings
             .contains_key(&KeyChord::parse_sequence("C-Space Escape").expect("valid sequence")));
@@ -293,7 +312,7 @@ mod tests {
                 context: None,
             }],
         };
-        let mut resolver = KeymapResolver::new(&config);
+        let mut resolver = KeymapResolver::new(&config, "C-t");
         let (m, c) = ctrl_space();
         resolver.resolve(m, c);
         assert_eq!(
@@ -303,8 +322,17 @@ mod tests {
     }
 
     #[test]
+    fn file_browser_toggle_resolves_to_action() {
+        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default(), "C-t");
+        assert_eq!(
+            resolver.resolve(KeyModifiers::CONTROL, KeyCode::Char('t')),
+            Resolved::Action("toggle-file-browser".to_string())
+        );
+    }
+
+    #[test]
     fn locked_mode_swallows_everything_except_unlock() {
-        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default());
+        let mut resolver = KeymapResolver::new(&KeyBindingsConfig::default(), "C-t");
         let (m, c) = ctrl_space();
         resolver.resolve(m, c);
         resolver.resolve(KeyModifiers::NONE, KeyCode::Char('l'));

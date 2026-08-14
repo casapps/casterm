@@ -109,6 +109,10 @@ struct TuiApp {
     keymap: KeymapResolver,
     hostname: String,
     should_quit: bool,
+    /// `Some` while the local file-browser tree panel is open. Rendered as
+    /// a carved-out region alongside pane rendering (not part of the pane
+    /// layout tree) — see `.claude/plans/inherited-painting-lark.md`.
+    file_browser: Option<crate::app::file_browser::FileBrowserState>,
 }
 
 impl TuiApp {
@@ -205,7 +209,7 @@ impl TuiApp {
         let session_id = app.sessions_mut().insert(session);
 
         let hostname = get_hostname();
-        let keymap = KeymapResolver::new(&config.keybindings);
+        let keymap = KeymapResolver::new(&config.keybindings, &config.file_browser.keybinding);
 
         Ok(Self {
             app,
@@ -217,6 +221,7 @@ impl TuiApp {
             keymap,
             hostname,
             should_quit: false,
+            file_browser: None,
         })
     }
 
@@ -472,6 +477,19 @@ impl TuiApp {
                 Ok(())
             }
             "send-literal-prefix" => self.write_to_pty(&[0x00]),
+            "toggle-file-browser" => {
+                self.file_browser = match self.file_browser.take() {
+                    Some(_) => None,
+                    None => {
+                        let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                        Some(crate::app::file_browser::FileBrowserState::new(
+                            root,
+                            self.config.file_browser.show_hidden,
+                        ))
+                    }
+                };
+                Ok(())
+            }
             _ => Ok(()),
         }
     }

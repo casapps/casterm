@@ -317,6 +317,39 @@ The left section always begins with the mode indicator. In the layouts below "SH
 - Smart semantic selection: automatically expand a click to the most meaningful unit (URL, file path, IP address, git hash, quoted string, word)
 - Global search across pane scrollback, all panes, windows, or file content
 
+### Local file browser
+- Must support a collapsible tree-style side panel for browsing the **local**
+  filesystem (tmux-sidebar / vim-NERDTree style), available in both the TUI
+  and GUI front ends, toggled by a global, user-remappable keybinding
+  (default `Ctrl+T` — see "Global bindings (no prefix required)" below).
+  This is distinct from the SFTP file browser under "Connection management",
+  which browses the filesystem of a **remote** host over an active SSH
+  connection; the two are separate, independently toggled panels.
+- Opening an entry classifies it and acts accordingly:
+  - a directory expands/collapses in the tree
+  - a plain-text file opens in a built-in nano-like text editor —
+    non-modal (every printable key inserts immediately, no vim-style
+    modes), with a bottom key-hint bar (e.g. `^S Save  ^X Exit  ^T Close
+    Panel`)
+  - an image (PNG, JPEG, GIF at minimum) opens in a built-in basic image
+    viewer (GUI only — see below)
+  - anything else (PDF, video, archives, office documents, …) is handed off
+    to the operating system's default application for that file type, as a
+    detached, non-blocking process, so the terminal session is never
+    blocked waiting on an external viewer
+- In the TUI, images and every other non-text file type use the OS-handoff
+  path — terminal cell grids cannot display real images without a graphics
+  protocol (Sixel / iTerm2 / Kitty graphics; see "Terminal compatibility"),
+  which is separate, larger, future scope. The GUI gets a true built-in
+  image viewer since its renderer already draws arbitrary pixel content.
+- When no display is available (headless/SSH session with no GUI to hand
+  files off to), attempting to open a non-text, non-image file must return
+  a clear, user-visible error — never hang or fail silently.
+- The panel is keyboard-navigable (arrow keys / vim-style `j`/`k`, `Enter`
+  to expand/open, the toggle key or `Esc` to close) and configurable:
+  enabled/disabled, panel width, left/right position, and whether hidden
+  (dotfile) entries are shown.
+
 ### Connectivity
 - Must include a native SSH client with a saved connection manager — users must be able to create, name, organize, and open SSH connections without leaving casterm and without relying on an external `ssh` binary; the connection manager must support jump hosts, local and remote port forwarding, X11 forwarding, and SSH agent forwarding (including the system agent and Pageant on Windows)
 - Must support proxy traversal — connections must be able to route through SOCKS4, SOCKS5, HTTP CONNECT, Telnet proxies, or a user-specified local proxy command; proxy configuration must be per-connection or global
@@ -492,6 +525,7 @@ All bindings below use the default prefix key (Ctrl+Space). The notation `PREFIX
 | Ctrl+H / Ctrl+J / Ctrl+K / Ctrl+L | Navigate panes (vim-aware: passes through to vim when vim is active) |
 | Shift+Left / Shift+Right | Previous / next window |
 | Alt+1 … Alt+9 | Switch to window 1–9 |
+| Ctrl+T | Toggle local file browser (tree panel) |
 
 **Session management (PREFIX + key):**
 

@@ -46,6 +46,10 @@ struct WindowState {
     mouse_down_cell: Option<(u16, u16)>,
     selection: Option<Selection>,
     last_title: String,
+    /// `Some` while the local file-browser tree panel is open. See
+    /// `.claude/plans/inherited-painting-lark.md`.
+    file_browser: Option<crate::app::file_browser::FileBrowserState>,
+    file_browser_show_hidden: bool,
 }
 
 impl WindowState {
@@ -105,6 +109,19 @@ impl WindowState {
                     self.selection = None;
                     self.mouse_down_cell = None;
                     return Ok(true);
+                }
+                if action == "toggle-file-browser" {
+                    self.file_browser = match self.file_browser.take() {
+                        Some(_) => None,
+                        None => {
+                            let root =
+                                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                            Some(crate::app::file_browser::FileBrowserState::new(
+                                root,
+                                self.file_browser_show_hidden,
+                            ))
+                        }
+                    };
                 }
                 Ok(false)
             }
@@ -254,7 +271,10 @@ impl ApplicationHandler for GuiApp {
             Err(e) => return self.fail(event_loop, e),
         };
 
-        let keymap = KeymapResolver::new(&self.config.keybindings);
+        let keymap = KeymapResolver::new(
+            &self.config.keybindings,
+            &self.config.file_browser.keybinding,
+        );
 
         self.state = Some(WindowState {
             window,
@@ -267,6 +287,8 @@ impl ApplicationHandler for GuiApp {
             mouse_down_cell: None,
             selection: None,
             last_title: String::new(),
+            file_browser: None,
+            file_browser_show_hidden: self.config.file_browser.show_hidden,
         });
 
         event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + POLL_INTERVAL));

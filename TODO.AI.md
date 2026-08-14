@@ -157,6 +157,34 @@ conversation"). Remove each line only once fully implemented.
   `apk` but not preinstalled), so this test can't assert a real device is
   always obtainable in CI.
 
+## Local file browser (Phase 1 of 6, `.claude/plans/inherited-painting-lark.md`)
+
+- Phase 1 (this phase) is shared-core infrastructure only
+  (`app::file_browser`, `app::editor`, `config::FileBrowserConfig`, the
+  `Ctrl+T`-default toggle keybinding wired into both front ends'
+  `dispatch_action`/`dispatch_key`) — nothing renders yet. Both new modules
+  carry a temporary `#![allow(dead_code)]` until Phase 2 (TUI tree
+  rendering) and Phase 4 (TUI editor)/Phase 5 (GUI editor) give them real
+  callers; remove the attributes once wired in.
+- `.gitignore`-aware tree filtering — needs the `ignore` crate, not
+  currently a dependency.
+- File-type icons / nerd-font glyphs in the tree.
+- Fuzzy-find-in-tree.
+- Resizable panel (drag-to-resize), multi-select/batch operations,
+  right-click/context-menu actions (rename/delete/new file) — none of
+  these are in the original request's scope.
+- Undo/redo, search/replace, syntax highlighting, line numbers, multi-file
+  tabs, and an unsaved-changes confirmation prompt on editor exit are
+  explicitly deferred from the nano-like editor's MVP scope (no
+  dialog/modal primitive exists in this codebase yet to build a blocking
+  confirm cheaply).
+- WebP/BMP/TIFF/AVIF image support (needs enabling more `image` crate
+  features beyond the currently-enabled `png`/`jpeg`/`gif`), zoom/pan in
+  the GUI image viewer, animated GIF playback (MVP renders the first frame
+  only), and TUI Sixel/Kitty/iTerm2 graphics-protocol image support (the
+  deliberately deferred TUI half of this feature — TUI images stay on the
+  OS-handoff path permanently per the plan).
+
 ## Cross-cutting
 
 - GUI window icon — `assets::get_icon()` was deleted as dead code with no

@@ -1,5 +1,7 @@
 //! Core application logic
 
+pub mod editor;
+pub mod file_browser;
 pub mod keybindings;
 pub mod multiplexer;
 pub mod pane_runtime;

@@ -42,6 +42,9 @@ pub struct Config {
     // Connections
     pub connections: ConnectionsConfig,
 
+    // Local file browser
+    pub file_browser: FileBrowserConfig,
+
     // Logging
     pub logging: LoggingConfig,
 
@@ -370,6 +373,43 @@ impl Default for ConnectionsConfig {
             auto_reconnect: true,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FileBrowserConfig {
+    /// Enable the built-in local file browser tree panel
+    pub enabled: bool,
+    /// Panel width in columns/cells
+    pub width: u16,
+    /// Panel position: left or right
+    pub position: FileBrowserPosition,
+    /// Show dotfiles/hidden entries
+    pub show_hidden: bool,
+    /// Toggle keybinding, in the same chord-spec syntax as other bindings
+    /// (see `app::keybindings::KeyChord::parse`). Global/unprefixed by
+    /// design so it doesn't require the `C-Space` prefix.
+    pub keybinding: String,
+}
+
+impl Default for FileBrowserConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            width: 30,
+            position: FileBrowserPosition::Left,
+            show_hidden: false,
+            keybinding: "C-t".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FileBrowserPosition {
+    #[default]
+    Left,
+    Right,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
